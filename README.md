@@ -7,7 +7,7 @@
 
 # AZMQ
 
-**AZMQ** is a Python 3 asyncio-native implementation of ZMTP (the protocol behind ZMQ).
+**AZMQ** is a Python 3 asyncio-native implementation of [ZMTP](http://rfc.zeromq.org/spec:37) (the protocol behind ZMQ).
 
 ## Motivation
 
@@ -16,7 +16,8 @@ functional asyncio-compatible version that works well on all platforms. This is
 especially true on Windows for which the few existing implementations are
 seriously limited in performance and functionality.
 
-**AZMQ**'s goal is to lift those restriction and to work the same on all platforms that Python 3.5 supports.
+**AZMQ**'s goal is to lift those restrictions and to work the same on all
+platforms that Python 3.5 supports.
 
 ## Installation
 
