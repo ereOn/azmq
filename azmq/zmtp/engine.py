@@ -12,6 +12,54 @@ from .messaging import (
     write_short_greeting,
 )
 
+
+class BaseEngine(object):
+    """
+    The base class for engines.
+    """
+    def __init__(self, socket, url):
+        self.socket = socket
+        self.url = url
+        self.loop = socket.loop
+        self.closed_future = asyncio.Future(loop=self.loop)
+        self.closing = False
+        self.futures = set()
+
+        self.socket.register_engine(self)
+
+        logger.debug("Engine opened.")
+
+    @property
+    def closed(self):
+        return self.closed_future.done()
+
+    async def wait_closed(self):
+        """
+        Wait for the engine to be closed.
+        """
+        await self.closed_future
+
+    def close(self):
+        """
+        Close the engine.
+        """
+        if not self.closed and not self.closing:
+            logger.debug("Engine closing...")
+            self.closing = True
+
+            for future in self.futures:
+                future.cancel()
+
+            def set_closed(_):
+                logger.debug("Engine closed.")
+                self.closed_future.set_result(True)
+                self.socket.unregister_engine(self)
+
+            asyncio.ensure_future(
+                asyncio.gather(*self.futures),
+            ).add_done_callback(set_closed)
+
+
 class Protocol(asyncio.Protocol):
     def __init__(self):
         self.transport = None
@@ -46,81 +94,33 @@ class Protocol(asyncio.Protocol):
         pass
 
 
-class TCPClientEngine(object):
-    def __init__(self, socket, host, port):
-        self.socket = socket
-        self.loop = socket.context.loop
-        self.host = host
-        self.port = port
-        self.futures = set()
-        self.initialize_connection()
-        self.transport = None
-        self.protocol = None
+class TCPClientEngine(BaseEngine):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-        self.retry_delay = 0.1
-        self.min_retry_delay_factor = 1.1
-        self.max_retry_delay_factor = 1.5
-        self.max_retry_delay = 30.0
+        self._async_connect()
 
-    def async_call(self, coro, callback):
-        future = asyncio.ensure_future(coro, loop=self.loop)
-        future.add_done_callback(self.futures.remove)
-        future.add_done_callback(callback)
-        self.futures.add(future)
-
-    def increase_delay(self):
-        self.retry_delay *= (
-            self.min_retry_delay_factor + random() * (
-                self.max_retry_delay_factor - self.min_retry_delay_factor
-            )
-        )
-
-        if self.retry_delay > self.max_retry_delay:
-            self.retry_delay = self.max_retry_delay
-
-        return self.retry_delay
-
-    def initialize_connection(self, future=None):
-        self.async_call(
+    def _async_connect(self):
+        future = asyncio.ensure_future(
             self.loop.create_connection(
                 Protocol,
-                host=self.host,
-                port=self.port,
+                host=self.url.hostname,
+                port=self.url.port,
             ),
-            self.handle_connection,
+            loop=self.loop,
         )
+        future.add_done_callback(self._handle_async_connect)
+        self.futures.add(future)
 
-    def handle_connection(self, future):
+    def _handle_async_connect(self, future):
+        self.futures.remove(future)
+
         try:
             self.transport, self.protocol = future.result()
-            self.retry_delay = 0.0
         except OSError as ex:
-            retry_delay = self.increase_delay()
-
             logger.debug(
-                "Could not establish connection to tcp://%s:%s (%s). Retrying "
-                "in %0.2f second(s).",
-                self.host,
-                self.port,
+                "Connection attempt to %s failed (%s). Retrying...",
+                self.url,
                 ex,
-                retry_delay,
             )
-            self.async_call(
-                asyncio.sleep(retry_delay),
-                self.initialize_connection,
-            )
-
-    def close(self):
-        for future in self.futures:
-            # We need to remove the done callback on the set or it will be
-            # modified mid-iteration.
-            future.remove_done_callback(self.futures.remove)
-            future.cancel()
-
-        self.futures.clear()
-
-        if self.transport:
-            #TODO: Call abort if LINGER=0 ?
-            self.transport.close()
-
-
+            self.loop.call_later(0.5, self._async_connect)

@@ -2,13 +2,13 @@
 API constants.
 """
 
-REQ = 'REQ'
-REP = 'REP'
-XREQ = 'XREQ'
-XREP = 'XREP'
 DEALER = 'DEALER'
-ROUTER = 'ROUTER'
 PUB = 'PUB'
+REP = 'REP'
+REQ = 'REQ'
+ROUTER = 'ROUTER'
 SUB = 'SUB'
 XPUB = 'XPUB'
+XREP = 'XREP'
+XREQ = 'XREQ'
 XSUB = 'XSUB'

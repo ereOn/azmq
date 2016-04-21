@@ -2,7 +2,7 @@
 ZMQ context class implementation.
 """
 
-from threading import Lock
+import asyncio
 
 from .log import logger
 from .socket import Socket
@@ -12,25 +12,48 @@ class Context(object):
     """
     A ZMQ context.
 
-    This class and all of its methods are thread-safe.
+    This class is **NOT** thread-safe.
     """
-    def __init__(self):
-        self.lock = Lock()
+    def __init__(self, loop=None):
+        self.loop = loop or asyncio.get_event_loop()
+        self.closed_future = asyncio.Future(loop=self.loop)
+        self.closing = False
         self.sockets = set()
 
         logger.debug("Context opened.")
+
+    @property
+    def closed(self):
+        return self.closed_future.done()
+
+    async def wait_closed(self):
+        """
+        Wait for the context to be closed.
+        """
+        await self.closed_future
 
     def close(self):
         """
         Close the context and all its associated sockets.
         """
-        with self.lock:
+        if not self.closed and not self.closing:
+            logger.debug("Context closing...")
+            self.closing = True
+            futures = []
+
             for socket in self.sockets:
-                socket.loop.call_soon_threadsafe(socket.close)
+                socket.close()
+                futures.append(socket.wait_closed())
 
-        logger.debug("Context closed.")
+            def set_closed(_):
+                logger.debug("Context closed.")
+                self.closed_future.set_result(True)
 
-    def socket(self, type, loop=None):
+            asyncio.ensure_future(
+                asyncio.gather(*futures),
+            ).add_done_callback(set_closed)
+
+    def socket(self, type):
         """
         Create and register a new socket.
 
@@ -39,7 +62,7 @@ class Context(object):
 
         This is the preferred method to create new sockets.
         """
-        return Socket(context=self, loop=loop, type=type)
+        return Socket(type=type, context=self, loop=self.loop)
 
     def register_socket(self, socket):
         """
@@ -54,8 +77,7 @@ class Context(object):
             It is the caller's responsibility to ensure that the `socket` was
             not registered already in this context or another one.
         """
-        with self.lock:
-            self.sockets.add(socket)
+        self.sockets.add(socket)
 
     def unregister_socket(self, socket):
         """
@@ -70,5 +92,4 @@ class Context(object):
             It is the caller's responsibility to ensure that the `socket` was
             not registered already in this context or another one.
         """
-        with self.lock:
-            self.sockets.remove(socket)
+        self.sockets.remove(socket)

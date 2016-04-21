@@ -11,7 +11,7 @@ import zmq
 
 
 # This is temporary. We should test the higher-level implementation instead.
-from azmq.zmtp.engine import Context, Socket
+import azmq
 
 
 @pytest.yield_fixture
@@ -25,19 +25,19 @@ def event_loop():
 
     yield loop
 
-    loop.run_until_complete(asyncio.wait(asyncio.Task.all_tasks()))
+    loop.run_until_complete(asyncio.gather(*asyncio.Task.all_tasks()))
 
 
 @pytest.mark.asyncio
-async def test_client_rep_socket(event_loop):
+async def test_tcp_client_rep_socket(event_loop):
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REQ)
     sock.bind('tcp://127.0.0.1:3333')
     # This is temporary. We should test the higher-level implementation
     # instead.
-    context = Context(loop=event_loop)
-    socket = Socket(context=context)
+    context = azmq.Context(loop=event_loop)
+    socket = context.socket(azmq.REP)
     socket.connect('tcp://127.0.0.1:3333')
-    await asyncio.sleep(5)
-    socket.close()
-    assert False
+    await asyncio.sleep(1)
+    context.close()
+    await context.wait_closed()
