@@ -1,0 +1,14 @@
+"""
+API constants.
+"""
+
+REQ = 'REQ'
+REP = 'REP'
+XREQ = 'XREQ'
+XREP = 'XREP'
+DEALER = 'DEALER'
+ROUTER = 'ROUTER'
+PUB = 'PUB'
+SUB = 'SUB'
+XPUB = 'XPUB'
+XSUB = 'XSUB'
