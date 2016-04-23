@@ -41,3 +41,4 @@ async def test_tcp_client_rep_socket(event_loop):
     await asyncio.sleep(1)
     context.close()
     await context.wait_closed()
+    assert 0

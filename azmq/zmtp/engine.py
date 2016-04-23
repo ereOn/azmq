@@ -4,30 +4,132 @@ ZMTP engine.
 
 import asyncio
 
+from enum import Enum
+from io import BytesIO
 from random import random
 
 from .log import logger
 from .messaging import (
-    write_greeting,
-    write_short_greeting,
+    dump_ready_command,
+    load_ready_command,
+    read_command,
+    read_first_greeting,
+    read_second_greeting,
+    write_command,
+    write_first_greeting,
+    write_second_greeting,
+)
+from .errors import (
+    UnexpectedCommand,
+    UnsupportedMechanism,
 )
 
 
-class BaseEngine(object):
+class State(Enum):
+    version_negotiation = 1
+    authentication = 2
+
+
+class TCPClient(object):
     """
-    The base class for engines.
+    A generic TCP client.
     """
+
+    def __init__(self, engine, reader, writer):
+        self.engine = engine
+        self.loop = engine.loop
+        self.reader = reader
+        self.writer = writer
+        self.state = State.version_negotiation
+        self.closed_future = asyncio.Future(loop=self.loop)
+        self.closing = False
+        self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
+        self.run_task.add_done_callback(self.on_run_done)
+
+        logger.debug("TCP client opened.")
+
+    @property
+    def closed(self):
+        return self.closed_future.done()
+
+    async def wait_closed(self):
+        """
+        Wait for the engine to be closed.
+        """
+        await self.closed_future
+
+    def close(self):
+        """
+        Close the client.
+        """
+        if not self.closed and not self.closing:
+            self.closing = True
+
+            if self.run_task:
+                self.run_task.cancel()
+
+    async def run(self):
+        """
+        The messaging loop.
+        """
+        write_first_greeting(self.writer, major_version=3)
+        await read_first_greeting(self.reader, 3)
+
+        write_second_greeting(
+            self.writer,
+            minor_version=1,
+            mechanism=b'NULL',
+            as_server=False,
+        )
+        minor_version, mechanism, as_server = await read_second_greeting(
+            self.reader,
+        )
+
+        if mechanism == b'NULL':
+            write_command(self.writer, b'READY', dump_ready_command({
+                b'Identity': b'\x00\x00\x00\x00',
+                b'Socket-Type': b'REP',
+            }))
+            command_name, command_data = await read_command(self.reader)
+
+            if command_name != b'READY':
+                raise UnexpectedCommand(
+                    "Unexpected command: %s" % command_name,
+                )
+
+            ready_values = load_ready_command(command_data)
+            print(ready_values)
+        else:
+            raise UnsupportedMechanism("Unsupported mechanism: %s" % mechanism)
+
+    def on_run_done(self, future):
+        self.run_task = None
+        self.writer.close()
+
+        logger.debug("TCP client closed (%s).", future.exception())
+
+        self.closed_future.set_result(True)
+        self.engine.on_connection_lost()
+
+
+class TCPClientEngine(object):
+    """
+    A TCPClient engine.
+    """
+
     def __init__(self, socket, url):
         self.socket = socket
         self.url = url
         self.loop = socket.loop
         self.closed_future = asyncio.Future(loop=self.loop)
         self.closing = False
-        self.futures = set()
 
         self.socket.register_engine(self)
 
         logger.debug("Engine opened.")
+
+        self.tcp_client = None
+        self.init_connection()
 
     @property
     def closed(self):
@@ -47,80 +149,64 @@ class BaseEngine(object):
             logger.debug("Engine closing...")
             self.closing = True
 
-            for future in self.futures:
-                future.cancel()
+            futures = []
+
+            if self.connect_task:
+                self.connect_task.cancel()
+                futures.append(self.connect_task)
+
+            if self.tcp_client:
+                self.tcp_client.close()
+                futures.append(self.tcp_client.wait_closed())
 
             def set_closed(_):
                 logger.debug("Engine closed.")
                 self.closed_future.set_result(True)
                 self.socket.unregister_engine(self)
 
-            asyncio.ensure_future(
-                asyncio.gather(*self.futures),
-            ).add_done_callback(set_closed)
+            if futures:
+                asyncio.ensure_future(
+                    asyncio.wait(futures),
+                ).add_done_callback(set_closed)
+            else:
+                self.loop.call_soon(set_closed, None)
 
-
-class Protocol(asyncio.Protocol):
-    def __init__(self):
-        self.transport = None
-        self.first = True
-
-    @property
-    def peername(self):
-        host, port = self.transport.get_extra_info('peername')
-        return 'tcp://%s:%s' % (host, port)
-
-    def connection_made(self, transport):
-        self.transport = transport
-        logger.debug("Connection to %r established.", self.peername)
-
-    def connection_lost(self, exc):
-        logger.debug("Connection to %r lost.", self.peername)
-
-    def data_received(self, data):
-        logger.debug("Received data: %r.", data)
-
-        if self.first:
-            self.first = False
-            write_greeting(self.transport, (3, 1), 'NULL', False)
-
-    def eof_received(self):
-        logger.debug("Received eof.")
-
-    def pause_writing(self):
-        pass
-
-    def resume_writing(self):
-        pass
-
-
-class TCPClientEngine(BaseEngine):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self._async_connect()
-
-    def _async_connect(self):
-        future = asyncio.ensure_future(
-            self.loop.create_connection(
-                Protocol,
-                host=self.url.hostname,
-                port=self.url.port,
-            ),
+    def init_connection(self, delay=0.0):
+        self.connect_task = asyncio.ensure_future(
+            self.connect(delay=delay),
             loop=self.loop,
         )
-        future.add_done_callback(self._handle_async_connect)
-        self.futures.add(future)
+        self.connect_task.add_done_callback(self.on_connect_done)
 
-    def _handle_async_connect(self, future):
-        self.futures.remove(future)
+    async def connect(self, delay=0.0):
+        await asyncio.sleep(delay)
+        return await asyncio.open_connection(
+            host=self.url.hostname,
+            port=self.url.port,
+        )
+
+    def on_connect_done(self, future):
+        self.connect_task = None
 
         try:
-            self.transport, self.protocol = future.result()
+            reader, writer = future.result()
+            self.tcp_client = TCPClient(
+                engine=self,
+                reader=reader,
+                writer=writer,
+            )
+
+        except asyncio.CancelledError:
+            pass
+
         except OSError as ex:
             logger.debug(
                 "Connection attempt to %s failed (%s). Retrying...",
                 self.url,
                 ex,
             )
-            self.loop.call_later(0.5, self._async_connect)
+            self.init_connection(delay=0.5)
+
+    def on_connection_lost(self):
+        self.tcp_client = None
+        self.init_connection(delay=0.5)
