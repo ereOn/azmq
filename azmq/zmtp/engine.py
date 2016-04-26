@@ -63,10 +63,12 @@ class TCPClient(object):
         Close the client.
         """
         if not self.closed and not self.closing:
+            logger.debug("TCP client closing...")
             self.closing = True
 
             if self.run_task:
                 self.run_task.cancel()
+                self.writer.close()
 
     async def run(self):
         """
@@ -102,11 +104,17 @@ class TCPClient(object):
         else:
             raise UnsupportedMechanism("Unsupported mechanism: %s" % mechanism)
 
+    async def write(self, remote_socket_type, remote_identity):
+        while True:
+            frames = await self.write_queue.get()
+
     def on_run_done(self, future):
         self.run_task = None
-        self.writer.close()
 
-        logger.debug("TCP client closed (%s).", future.exception())
+        if future.cancelled():
+            logger.debug("TCP client closed after cancellation.")
+        else:
+            logger.debug("TCP client closed (%s).", future.exception())
 
         self.closed_future.set_result(True)
         self.engine.on_connection_lost()
@@ -209,4 +217,6 @@ class TCPClientEngine(object):
 
     def on_connection_lost(self):
         self.tcp_client = None
-        self.init_connection(delay=0.5)
+
+        if not self.closing:
+            self.init_connection(delay=0.5)

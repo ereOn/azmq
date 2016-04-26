@@ -69,7 +69,7 @@ async def read_first_greeting(buffer, major_version):
     :param buffer: The buffer to read from.
     :param major_version: The minimal version to support.
     """
-    data = await buffer.read(len(SIGNATURE))
+    data = await buffer.readexactly(len(SIGNATURE))
 
     if data[0] != SIGNATURE[0]:
         raise ZMTPFrameInvalid("Invalid signature")
@@ -77,7 +77,7 @@ async def read_first_greeting(buffer, major_version):
     if data[-1] != SIGNATURE[-1]:
         raise ZMTPFrameInvalid("Invalid signature")
 
-    version = struct.unpack('B', await buffer.read(1))[0]
+    version = struct.unpack('B', await buffer.readexactly(1))[0]
 
     if version < major_version:
         raise ZMTPFrameInvalid("Unsupported major version")
@@ -90,10 +90,10 @@ async def read_second_greeting(buffer):
     :param buffer: The buffer to read from.
     :return: The minor version, mechanism and as-server flag, as a tuple.
     """
-    version = struct.unpack('B', await buffer.read(1))[0]
-    mechanism = (await buffer.read(20)).rstrip(b'\x00')
-    as_server = bool(struct.unpack('B', await buffer.read(1))[0])
-    await buffer.read(len(FILLER))
+    version = struct.unpack('B', await buffer.readexactly(1))[0]
+    mechanism = (await buffer.readexactly(20)).rstrip(b'\x00')
+    as_server = bool(struct.unpack('B', await buffer.readexactly(1))[0])
+    await buffer.readexactly(len(FILLER))
 
     return version, mechanism, as_server
 
@@ -105,20 +105,20 @@ async def read_command(buffer):
     :param buffer: The buffer to read from.
     :returns: The command name and data.
     """
-    command_size_type = struct.unpack('B', await buffer.read(1))[0]
+    command_size_type = struct.unpack('B', await buffer.readexactly(1))[0]
 
     if command_size_type == 0x04:
-        command_size = struct.unpack('B', await buffer.read(1))[0]
+        command_size = struct.unpack('B', await buffer.readexactly(1))[0]
     elif command_size_type == 0x06:
-        command_size = struct.unpack('!Q', await buffer.read(8))[0]
+        command_size = struct.unpack('!Q', await buffer.readexactly(8))[0]
     else:
         raise ZMTPFrameInvalid(
             "Unexpected command size type: %0x" % command_size_type,
         )
 
-    command_name_size = struct.unpack('B', await buffer.read(1))[0]
-    command_name = await buffer.read(command_name_size)
-    command_data = await buffer.read(command_size - command_name_size)
+    command_name_size = struct.unpack('B', await buffer.readexactly(1))[0]
+    command_name = await buffer.readexactly(command_name_size)
+    command_data = await buffer.readexactly(command_size - command_name_size)
     return command_name, command_data
 
 
