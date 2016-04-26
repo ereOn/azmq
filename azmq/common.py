@@ -4,6 +4,8 @@ Common utility classes and functions.
 
 import asyncio
 
+from .log import logger
+
 
 class AsyncObject(object):
     """
@@ -21,6 +23,7 @@ class ClosableAsyncObject(AsyncObject):
         super().__init__(loop=loop)
         self._closed_future = asyncio.Future(loop=self.loop)
         self.closing = False
+        logger.debug("%s opened.", self.__class__.__name__)
         self.on_open(*args, **kwargs)
 
     @property
@@ -97,6 +100,7 @@ class ClosableAsyncObject(AsyncObject):
         Can be used as a future callback as it takes and ignores and arguments
         passed to it.
         """
+        logger.debug("%s closed.", self.__class__.__name__)
         self.on_closed()
         self._closed_future.set_result(None)
 
@@ -105,6 +109,7 @@ class ClosableAsyncObject(AsyncObject):
         Close the instance.
         """
         if not self.closed and not self.closing:
+            logger.debug("%s closing...", self.__class__.__name__)
             self.closing = True
             future = asyncio.ensure_future(self.on_close())
             future.add_done_callback(self._set_closed)

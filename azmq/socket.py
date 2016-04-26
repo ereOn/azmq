@@ -25,10 +25,7 @@ class Socket(ClosableAsyncObject):
         self.engines = set()
         self.context.register_socket(self)
 
-        logger.debug("Socket opened.")
-
     async def on_close(self):
-        logger.debug("Socket closing...")
         futures = []
 
         for engine in self.engines:
@@ -36,9 +33,6 @@ class Socket(ClosableAsyncObject):
             futures.append(engine.wait_closed())
 
         await asyncio.gather(*futures)
-
-    def on_closed(self):
-        logger.debug("Socket closed.")
 
     def register_engine(self, engine):
         """

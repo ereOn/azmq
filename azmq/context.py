@@ -18,10 +18,7 @@ class Context(ClosableAsyncObject):
     def on_open(self):
         self.sockets = set()
 
-        logger.debug("Context opened.")
-
     async def on_close(self):
-        logger.debug("Context closing.")
         futures = []
 
         for socket in self.sockets:
@@ -29,9 +26,6 @@ class Context(ClosableAsyncObject):
             futures.append(socket.wait_closed())
 
         await asyncio.gather(*futures)
-
-    def on_closed(self):
-        logger.debug("Context closed.")
 
     def socket(self, type):
         """
