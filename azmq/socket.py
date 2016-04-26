@@ -21,7 +21,7 @@ class Socket(object):
         self.context = context
         self.loop = loop or asyncio.get_event_loop()
         self.type = type
-        self.identity = None
+        self.identity = b''
         self.closed_future = asyncio.Future(loop=self.loop)
         self.closing = False
         self.engines = set()

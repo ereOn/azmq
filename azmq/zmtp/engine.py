@@ -87,8 +87,8 @@ class TCPClient(object):
 
         if mechanism == b'NULL':
             write_command(self.writer, b'READY', dump_ready_command({
-                b'Identity': b'\x00\x00\x00\x00',
-                b'Socket-Type': b'REP',
+                b'Identity': self.engine.socket.identity,
+                b'Socket-Type': self.engine.socket.type,
             }))
             command_name, command_data = await read_command(self.reader)
 
