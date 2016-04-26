@@ -4,54 +4,34 @@ ZMQ context class implementation.
 
 import asyncio
 
+from .common import ClosableAsyncObject
 from .log import logger
 from .socket import Socket
 
 
-class Context(object):
+class Context(ClosableAsyncObject):
     """
     A ZMQ context.
 
     This class is **NOT** thread-safe.
     """
-    def __init__(self, loop=None):
-        self.loop = loop or asyncio.get_event_loop()
-        self.closed_future = asyncio.Future(loop=self.loop)
-        self.closing = False
+    def on_open(self):
         self.sockets = set()
 
         logger.debug("Context opened.")
 
-    @property
-    def closed(self):
-        return self.closed_future.done()
+    async def on_close(self):
+        logger.debug("Context closing.")
+        futures = []
 
-    async def wait_closed(self):
-        """
-        Wait for the context to be closed.
-        """
-        await self.closed_future
+        for socket in self.sockets:
+            socket.close()
+            futures.append(socket.wait_closed())
 
-    def close(self):
-        """
-        Close the context and all its associated sockets.
-        """
-        if not self.closed and not self.closing:
-            logger.debug("Context closing...")
-            self.closing = True
-            futures = []
+        await asyncio.gather(*futures)
 
-            for socket in self.sockets:
-                socket.close()
-                futures.append(socket.wait_closed())
-
-            def set_closed(_):
-                logger.debug("Context closed.")
-                self.closed_future.set_result(True)
-
-            asyncio.ensure_future(
-                asyncio.gather(*futures),
-            ).add_done_callback(set_closed)
+    def on_closed(self):
+        logger.debug("Context closed.")
 
     def socket(self, type):
         """
