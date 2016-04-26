@@ -113,3 +113,54 @@ class ClosableAsyncObject(AsyncObject):
             self.closing = True
             future = asyncio.ensure_future(self.on_close())
             future.add_done_callback(self._set_closed)
+
+
+class CompositeClosableAsyncObject(ClosableAsyncObject):
+    """
+    Base class for objects that can be asynchronously closed and awaited and
+    have ownership of other closable objects.
+    """
+    def on_open(self):
+        self._children = set()
+
+    async def on_close(self):
+        await asyncio.gather(
+            *[
+                self.on_close_child(child)
+                for child in self._children
+            ]
+        )
+
+    def on_closed(self):
+        del self._children
+
+    async def on_close_child(self, child):
+        """
+        Called whenever a child instance must be closed.
+
+        :returns: An awaitable that must only complete when the specified child
+            instance is effectively closed.
+
+        May be redefined by child-classes. The default implementation calls
+            `close` followed by `wait_closed` on the specified child instance.
+        """
+        child.close()
+        await child.wait_closed()
+
+    def register_child(self, child):
+        """
+        Register a new child that will be closed whenever the current instance
+        closes.
+
+        :param child: The child instance.
+        """
+        self._children.add(child)
+
+    def unregister_child(self, child):
+        """
+        Unregister an existing child that is no longer to be owned by the
+        current instance.
+
+        :param child: The child instance.
+        """
+        self._children.remove(child)

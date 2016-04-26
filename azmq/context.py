@@ -4,29 +4,17 @@ ZMQ context class implementation.
 
 import asyncio
 
-from .common import ClosableAsyncObject
+from .common import CompositeClosableAsyncObject
 from .log import logger
 from .socket import Socket
 
 
-class Context(ClosableAsyncObject):
+class Context(CompositeClosableAsyncObject):
     """
     A ZMQ context.
 
     This class is **NOT** thread-safe.
     """
-    def on_open(self):
-        self.sockets = set()
-
-    async def on_close(self):
-        futures = []
-
-        for socket in self.sockets:
-            socket.close()
-            futures.append(socket.wait_closed())
-
-        await asyncio.gather(*futures)
-
     def socket(self, type):
         """
         Create and register a new socket.
@@ -37,33 +25,3 @@ class Context(ClosableAsyncObject):
         This is the preferred method to create new sockets.
         """
         return Socket(type=type, context=self, loop=self.loop)
-
-    def register_socket(self, socket):
-        """
-        Register an existing socket.
-
-        You should never need to call that method explicitely as it is done for
-        you automatically when calling `socket`.
-
-        :param socket: The socket to register.
-
-        ..warning::
-            It is the caller's responsibility to ensure that the `socket` was
-            not registered already in this context or another one.
-        """
-        self.sockets.add(socket)
-
-    def unregister_socket(self, socket):
-        """
-        Unregister an existing socket.
-
-        You should never need to call that method explicitely as it is done for
-        you automatically when closing the socket.
-
-        :param socket: The socket to unregister.
-
-        ..warning::
-            It is the caller's responsibility to ensure that the `socket` was
-            not registered already in this context or another one.
-        """
-        self.sockets.remove(socket)

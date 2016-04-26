@@ -23,7 +23,7 @@ class Socket(ClosableAsyncObject):
         self.context = context
         self.identity = b''
         self.engines = set()
-        self.context.register_socket(self)
+        self.context.register_child(self)
 
     async def on_close(self):
         futures = []
