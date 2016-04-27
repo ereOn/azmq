@@ -26,6 +26,12 @@ class ClosableAsyncObject(AsyncObject):
         logger.debug("%s opened.", self.__class__.__name__)
         self.on_open(*args, **kwargs)
 
+    def __del__(self):
+        """
+        Closes asynchronously the object upon deletion.
+        """
+        self.close()
+
     @property
     def closed(self):
         return self._closed_future.done()
@@ -168,3 +174,101 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
         :param child: The child instance.
         """
         self._children.remove(child)
+
+
+class AsyncTaskObject(ClosableAsyncObject):
+    """
+    Base class for objects whose lifetime is bound to a single running task.
+    """
+    def on_open(self):
+        self.run_task = asyncio.ensure_future(
+            self.run(),
+            loop=self.loop,
+        )
+
+    async def on_close(self):
+        self.run_task.cancel()
+        return self.run_task
+
+    async def run(self):
+        try:
+            await self.on_run()
+        finally:
+            self.close()
+
+    async def on_run(self):
+        """
+        The task's main code. Upon completion of this task, the instance will
+        be automatically closed.
+
+        Should be redefined by child-classes.
+        """
+
+class AsyncTimeout(AsyncTaskObject):
+    """
+    A resetable asynchronous timeout.
+    """
+    def on_open(self, coro, timeout):
+        """
+        Initialize a new timeout.
+
+        :param coro: The coroutine to execute when the timeout reaches the end
+            of its life.
+        :param timeout: The maximum time to wait for, in seconds.
+        """
+        super().on_open()
+        self.coro = coro
+        self.timeout = timeout
+        self.revive_event = asyncio.Event(loop=self.loop)
+
+    async def on_run(self):
+        try:
+            while True:
+                await asyncio.wait_for(
+                    self.revive_event.wait(),
+                    timeout=self.timeout,
+                    loop=self.loop,
+                )
+                self.revive_event.clear()
+        except asyncio.TimeoutError:
+            await self.coro()
+
+    def revive(self):
+        self.revive_event.set()
+
+
+class AsyncPeriodicTimer(AsyncTaskObject):
+    """
+    An asynchronous periodic timer.
+    """
+    def on_open(self, coro, period):
+        """
+        Initialize a new timer.
+
+        :param coro: The coroutine to execute on each tick.
+        :param period: The interval of time between two ticks.
+        """
+        super().on_open()
+        self.coro = coro
+        self.period = period
+        self.reset_event = asyncio.Event(loop=self.loop)
+
+    async def on_run(self):
+        while True:
+            try:
+                await asyncio.wait_for(
+                    self.reset_event.wait(),
+                    timeout=self.period,
+                    loop=self.loop,
+                )
+            except asyncio.TimeoutError:
+                await self.coro()
+            else:
+                self.reset_event.clear()
+
+    def reset(self):
+        """
+        Reset the internal timer, effectively causing the next tick to happen
+        in `self.period` seconds.
+        """
+        self.reset_event.set()
