@@ -120,6 +120,10 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
     Base class for objects that can be asynchronously closed and awaited and
     have ownership of other closable objects.
     """
+    @property
+    def children(self):
+        return self._children
+
     def on_open(self):
         self._children = set()
 

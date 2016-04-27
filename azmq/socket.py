@@ -23,7 +23,6 @@ class Socket(CompositeClosableAsyncObject):
         self.type = type
         self.context = context
         self.identity = b''
-        self.engines = set()
         self.context.register_child(self)
 
     def connect(self, endpoint):
@@ -40,5 +39,5 @@ class Socket(CompositeClosableAsyncObject):
     def disconnect(self, endpoint):
         url = urlsplit(endpoint)
 
-        engine = next(engine for engine in self.engines if engine.url == url)
+        engine = next(engine for engine in self.children if engine.url == url)
         engine.close()
