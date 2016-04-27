@@ -132,7 +132,7 @@ class TCPClientEngine(object):
         self.closed_future = asyncio.Future(loop=self.loop)
         self.closing = False
 
-        self.socket.register_engine(self)
+        self.socket.register_child(self)
 
         logger.debug("Engine opened.")
 
@@ -170,7 +170,7 @@ class TCPClientEngine(object):
             def set_closed(_):
                 logger.debug("Engine closed.")
                 self.closed_future.set_result(True)
-                self.socket.unregister_engine(self)
+                self.socket.unregister_child(self)
 
             if futures:
                 asyncio.ensure_future(
