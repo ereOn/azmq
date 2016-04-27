@@ -118,7 +118,9 @@ async def read_command(buffer):
 
     command_name_size = struct.unpack('B', await buffer.readexactly(1))[0]
     command_name = await buffer.readexactly(command_name_size)
-    command_data = await buffer.readexactly(command_size - command_name_size)
+    command_data = await buffer.readexactly(
+        command_size - command_name_size - 1,
+    )
     return command_name, command_data
 
 
