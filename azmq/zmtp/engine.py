@@ -68,7 +68,6 @@ class TCPClient(object):
 
             if self.run_task:
                 self.run_task.cancel()
-                self.writer.close()
 
     async def run(self):
         """
@@ -110,6 +109,7 @@ class TCPClient(object):
 
     def on_run_done(self, future):
         self.run_task = None
+        self.writer.close()
 
         if future.cancelled():
             logger.debug("TCP client closed after cancellation.")
