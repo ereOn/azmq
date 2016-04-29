@@ -38,6 +38,11 @@ class TCPClientEngine(BaseEngine, AsyncTaskObject):
                     host=self.host,
                     port=self.port,
                 )
+                logger.debug(
+                    "Connection to %s:%s established.",
+                    self.host,
+                    self.port,
+                )
                 protocol = Protocol(reader=reader, writer=writer)
                 self.on_protocol_created.emit(protocol)
 
