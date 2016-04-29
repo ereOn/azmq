@@ -21,7 +21,9 @@ AZMQ is an implementation of ZMTP (the protocol behind ZMQ) using native Python
     packages=find_packages(exclude=[
         'tests',
     ]),
-    install_requires=[],
+    install_requires=[
+        'pyslot==2.0.0',
+    ],
     test_suite='tests',
     classifiers=[
         'Intended Audience :: Developers',
