@@ -4,6 +4,8 @@ Common utility classes and functions.
 
 import asyncio
 
+from pyslot import Signal
+
 from .log import logger
 
 
@@ -23,6 +25,7 @@ class ClosableAsyncObject(AsyncObject):
         super().__init__(loop=loop)
         self._closed_future = asyncio.Future(loop=self.loop)
         self.closing = False
+        self.on_closed = Signal()
         logger.debug("%s opened.", self.__class__.__name__)
         self.on_open(*args, **kwargs)
 
@@ -55,13 +58,6 @@ class ClosableAsyncObject(AsyncObject):
 
         :returns: An awaitable that must only complete when the instance is
             effectively closed.
-
-        Should be redefined by child-classes.
-        """
-
-    def on_closed(self):
-        """
-        Called whenever the instance was effectively closed.
 
         Should be redefined by child-classes.
         """
@@ -107,7 +103,7 @@ class ClosableAsyncObject(AsyncObject):
         passed to it.
         """
         logger.debug("%s closed.", self.__class__.__name__)
-        self.on_closed()
+        self.on_closed.emit(self)
         self._closed_future.set_result(None)
 
     def close(self):
@@ -140,8 +136,6 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
                 for child in self._children
             ]
         )
-
-    def on_closed(self):
         del self._children
 
     async def on_close_child(self, child):
@@ -165,6 +159,7 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
         :param child: The child instance.
         """
         self._children.add(child)
+        child.on_closed.connect(self.unregister_child)
 
     def unregister_child(self, child):
         """
@@ -174,6 +169,7 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
         :param child: The child instance.
         """
         self._children.remove(child)
+        child.on_closed.connect(self.unregister_child)
 
 
 class AsyncTaskObject(ClosableAsyncObject):
@@ -188,7 +184,7 @@ class AsyncTaskObject(ClosableAsyncObject):
 
     async def on_close(self):
         self.run_task.cancel()
-        return self.run_task
+        await self.run_task
 
     async def run(self):
         try:

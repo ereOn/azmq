@@ -23,4 +23,6 @@ class Context(CompositeClosableAsyncObject):
 
         This is the preferred method to create new sockets.
         """
-        return Socket(type=type, context=self, loop=self.loop)
+        socket = Socket(type=type, context=self, loop=self.loop)
+        self.register_child(socket)
+        return socket

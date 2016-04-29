@@ -25,7 +25,7 @@ def event_loop():
 
     yield loop
 
-    loop.run_until_complete(asyncio.gather(*asyncio.Task.all_tasks()))
+    loop.run_until_complete(asyncio.wait(asyncio.Task.all_tasks()))
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from .common import CompositeClosableAsyncObject
 from .errors import UnsupportedSchemeError
-from .zmtp.engine import TCPClientEngine
+from .engines.tcp import TCPClientEngine
 
 
 class Socket(CompositeClosableAsyncObject):
@@ -23,21 +23,29 @@ class Socket(CompositeClosableAsyncObject):
         self.type = type
         self.context = context
         self.identity = b''
-        self.context.register_child(self)
+        self.engines = {}
+        self.protocols = set()
 
     def connect(self, endpoint):
         url = urlsplit(endpoint)
 
         if url.scheme == 'tcp':
             engine = TCPClientEngine(
-                socket=self,
-                url=url,
+                host=url.hostname,
+                port=url.port,
             )
+            engine.on_protocol_created.connect(self.register_protocol)
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
+
+        self.engines[url] = engine
+        self.register_child(engine)
 
     def disconnect(self, endpoint):
         url = urlsplit(endpoint)
 
-        engine = next(engine for engine in self.children if engine.url == url)
+        engine = self.engines.pop(url)
         engine.close()
+
+    def register_protocol(self, protocol):
+        self.protocols.add(protocol)
