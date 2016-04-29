@@ -39,11 +39,11 @@ class ClosableAsyncObject(AsyncObject):
     def closed(self):
         return self._closed_future.done()
 
-    async def wait_closed(self):
+    def wait_closed(self):
         """
         Wait for the instance to be closed.
         """
-        await self._closed_future
+        return self._closed_future
 
     def on_open(self):
         """
