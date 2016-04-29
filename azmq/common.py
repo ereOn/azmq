@@ -39,11 +39,12 @@ class ClosableAsyncObject(AsyncObject):
     def closed(self):
         return self._closed_future.done()
 
-    def wait_closed(self):
+    async def wait_closed(self):
         """
         Wait for the instance to be closed.
         """
-        return self._closed_future
+        await self._closed_future
+        return self._closed_future.result()
 
     def on_open(self):
         """
@@ -52,10 +53,11 @@ class ClosableAsyncObject(AsyncObject):
         Should be redefined by child-classes.
         """
 
-    async def on_close(self):
+    async def on_close(self, result):
         """
         Called whenever a close of the instance was requested.
 
+        :param result: A value to use as the closing context.
         :returns: An awaitable that must only complete when the instance is
             effectively closed.
 
@@ -95,25 +97,24 @@ class ClosableAsyncObject(AsyncObject):
         self.close()
         await self.wait_closed()
 
-    def _set_closed(self, *args, **kwargs):
+    def _set_closed(self, future):
         """
         Indicate that the instance is effectively closed.
 
-        Can be used as a future callback as it takes and ignores any arguments
-        passed to it.
+        :param future: The close future.
         """
         logger.debug("%s closed.", self.__class__.__name__)
         self.on_closed.emit(self)
-        self._closed_future.set_result(None)
+        self._closed_future.set_result(future.result())
 
-    def close(self):
+    def close(self, result=True):
         """
         Close the instance.
         """
         if not self.closed and not self.closing:
             logger.debug("%s closing...", self.__class__.__name__)
             self.closing = True
-            future = asyncio.ensure_future(self.on_close())
+            future = asyncio.ensure_future(self.on_close(result))
             future.add_done_callback(self._set_closed)
 
 
@@ -129,16 +130,17 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
     def on_open(self):
         self._children = set()
 
-    async def on_close(self):
+    async def on_close(self, result):
         await asyncio.gather(
             *[
-                self.on_close_child(child)
+                self.on_close_child(child, result)
                 for child in self._children
             ]
         )
         del self._children
+        return result
 
-    async def on_close_child(self, child):
+    async def on_close_child(self, child, result):
         """
         Called whenever a child instance must be closed.
 
@@ -148,7 +150,7 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
         May be redefined by child-classes. The default implementation calls
             `close` followed by `wait_closed` on the specified child instance.
         """
-        child.close()
+        child.close(result)
         await child.wait_closed()
 
     def register_child(self, child):
@@ -158,8 +160,11 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
 
         :param child: The child instance.
         """
-        self._children.add(child)
-        child.on_closed.connect(self.unregister_child)
+        if self.closing:
+            child.close()
+        else:
+            self._children.add(child)
+            child.on_closed.connect(self.unregister_child)
 
     def unregister_child(self, child):
         """
@@ -182,9 +187,10 @@ class AsyncTaskObject(ClosableAsyncObject):
             loop=self.loop,
         )
 
-    async def on_close(self):
+    async def on_close(self, result):
         self.run_task.cancel()
         await self.run_task
+        return result
 
     async def run(self):
         try:

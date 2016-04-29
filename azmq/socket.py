@@ -24,7 +24,7 @@ class Socket(CompositeClosableAsyncObject):
         self.context = context
         self.identity = b''
         self.engines = {}
-        self.protocols = set()
+        self.connections = set()
 
     def connect(self, endpoint):
         url = urlsplit(endpoint)
@@ -34,7 +34,7 @@ class Socket(CompositeClosableAsyncObject):
                 host=url.hostname,
                 port=url.port,
             )
-            engine.on_protocol_created.connect(self.register_protocol)
+            engine.on_connection_ready.connect(self.register_connection)
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
 
@@ -47,5 +47,5 @@ class Socket(CompositeClosableAsyncObject):
         engine = self.engines.pop(url)
         engine.close()
 
-    def register_protocol(self, protocol):
-        self.protocols.add(protocol)
+    def register_connection(self, connection):
+        self.connections.add(connection)

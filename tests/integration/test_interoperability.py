@@ -9,9 +9,11 @@ import pytest
 import sys
 import zmq
 
+from logging import getLogger
 
-# This is temporary. We should test the higher-level implementation instead.
 import azmq
+
+logger = getLogger()
 
 
 @pytest.yield_fixture
@@ -40,5 +42,6 @@ async def test_tcp_client_rep_socket(event_loop):
         socket = context.socket(azmq.REQ)
         socket.connect('tcp://127.0.0.1:3333')
         await asyncio.sleep(1)
+        logger.info("Wait is over.")
 
     assert 0
