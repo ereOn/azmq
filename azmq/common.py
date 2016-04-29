@@ -99,7 +99,7 @@ class ClosableAsyncObject(AsyncObject):
         """
         Indicate that the instance is effectively closed.
 
-        Can be used as a future callback as it takes and ignores and arguments
+        Can be used as a future callback as it takes and ignores any arguments
         passed to it.
         """
         logger.debug("%s closed.", self.__class__.__name__)
