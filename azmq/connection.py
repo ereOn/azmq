@@ -7,6 +7,7 @@ import asyncio
 from pyslot import Signal
 
 from .common import ClosableAsyncObject
+from .errors import ProtocolError
 from .log import logger
 from .messaging import (
     dump_ready_command,
@@ -49,6 +50,8 @@ class Connection(ClosableAsyncObject):
             await self.on_run()
         except self.Retry:
             self.close(self.CLOSE_RETRY)
+        except ProtocolError as ex:
+            logger.info("Protocol error (%s). Terminating connection.", ex)
         except Exception:
             logger.exception("Unexpected error. Terminating connection.")
         finally:
