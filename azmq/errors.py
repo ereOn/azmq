@@ -12,3 +12,7 @@ class UnsupportedSchemeError(AZMQError):
     def __init__(self, scheme):
         super().__init__("Unsupported scheme '%s'" % scheme)
         self.scheme = scheme
+
+
+class ProtocolError(AZMQError):
+    pass

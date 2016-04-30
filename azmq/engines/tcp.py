@@ -8,34 +8,19 @@ from ..common import (
     ClosableAsyncObject,
     CompositeClosableAsyncObject,
 )
+from ..connection import Connection
 from ..log import logger
 
 from .base import BaseEngine
 
 
-class Connection(ClosableAsyncObject):
-    """
-    Implements a ZMTP connection.
-
-    If closed with the `True` result, instructs the managing engine to retry
-    the connection.
-    """
-    def __init__(self, reader, writer):
-        super().__init__()
-        self.reader = reader
-        self.writer = writer
-
-    async def on_close(self, result):
-        self.writer.close()
-        return result
-
-
 class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
-    def on_open(self, host, port):
+    def on_open(self, host, port, attributes):
         super().on_open()
 
         self.host = host
         self.port = port
+        self.attributes = attributes
         self.run_task = asyncio.ensure_future(self.run())
 
     async def on_close(self, result):
@@ -65,13 +50,19 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
                     self.port,
                 )
 
-                async with Connection(reader=reader, writer=writer) as \
-                        connection:
+                async with Connection(
+                    reader=reader,
+                    writer=writer,
+                    attributes=self.attributes,
+                ) as connection:
                     self.register_child(connection)
 
-                    if not await connection.wait_closed() or self.closing:
+                    if (
+                        await connection.wait_closed() != \
+                        Connection.CLOSE_RETRY
+                    ) or self.closing:
                         logger.debug(
-                            "Connection to %s:%s closed.",
+                            "Connection to %s:%s closed definitely.",
                             self.host,
                             self.port,
                         )

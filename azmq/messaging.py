@@ -6,7 +6,7 @@ import struct
 
 from io import BytesIO
 
-from .errors import ZMTPFrameInvalid
+from .errors import ProtocolError
 
 
 SIGNATURE = b'\xff\x00\x00\x00\x00\x00\x00\x00\x00\x7f'
@@ -62,25 +62,22 @@ def write_command(buffer, name, data):
     buffer.write(data)
 
 
-async def read_first_greeting(buffer, major_version):
+async def read_first_greeting(buffer):
     """
     Read the first greeting from the specified buffer.
 
     :param buffer: The buffer to read from.
-    :param major_version: The minimal version to support.
+    :returns: The major version.
     """
     data = await buffer.readexactly(len(SIGNATURE))
 
     if data[0] != SIGNATURE[0]:
-        raise ZMTPFrameInvalid("Invalid signature")
+        raise ProtocolError("Invalid signature")
 
     if data[-1] != SIGNATURE[-1]:
-        raise ZMTPFrameInvalid("Invalid signature")
+        raise ProtocolError("Invalid signature")
 
-    version = struct.unpack('B', await buffer.readexactly(1))[0]
-
-    if version < major_version:
-        raise ZMTPFrameInvalid("Unsupported major version")
+    return struct.unpack('B', await buffer.readexactly(1))[0]
 
 
 async def read_second_greeting(buffer):
@@ -88,7 +85,7 @@ async def read_second_greeting(buffer):
     Read the second greeting from the specified buffer.
 
     :param buffer: The buffer to read from.
-    :return: The minor version, mechanism and as-server flag, as a tuple.
+    :returns: The minor version, mechanism and as-server flag, as a tuple.
     """
     version = struct.unpack('B', await buffer.readexactly(1))[0]
     mechanism = (await buffer.readexactly(20)).rstrip(b'\x00')
@@ -112,7 +109,7 @@ async def read_command(buffer):
     elif command_size_type == 0x06:
         command_size = struct.unpack('!Q', await buffer.readexactly(8))[0]
     else:
-        raise ZMTPFrameInvalid(
+        raise ProtocolError(
             "Unexpected command size type: %0x" % command_size_type,
         )
 
@@ -158,7 +155,7 @@ def load_ready_command(data):
         offset += 1
 
         if name_size + 4 > size:
-            raise ZMTPFrameInvalid("Invalid name size in READY command")
+            raise ProtocolError("Invalid name size in READY command")
 
         name = data[offset:offset + name_size]
         offset += name_size
@@ -167,7 +164,7 @@ def load_ready_command(data):
         offset += 4
 
         if value_size > size:
-            raise ZMTPFrameInvalid("Invalid value size in READY command")
+            raise ProtocolError("Invalid value size in READY command")
 
         value = data[offset:offset + value_size]
         offset += value_size

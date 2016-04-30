@@ -26,6 +26,17 @@ class Socket(CompositeClosableAsyncObject):
         self.engines = {}
         self.connections = set()
 
+    @property
+    def attributes(self):
+        attributes = {
+            b'Socket-Type': self.type,
+        }
+
+        if self.identity:
+            attributes[b'Identity'] = self.identity
+
+        return attributes
+
     def connect(self, endpoint):
         url = urlsplit(endpoint)
 
@@ -33,6 +44,7 @@ class Socket(CompositeClosableAsyncObject):
             engine = TCPClientEngine(
                 host=url.hostname,
                 port=url.port,
+                attributes=self.attributes,
             )
             engine.on_connection_ready.connect(self.register_connection)
         else:
