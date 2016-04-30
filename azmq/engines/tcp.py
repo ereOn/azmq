@@ -25,7 +25,12 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
 
     async def on_close(self, result):
         await super().on_close(result)
-        await self.run_task
+
+        try:
+            await self.run_task
+        except:
+            pass
+
         return result
 
     async def run(self):
@@ -56,6 +61,17 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
                     attributes=self.attributes,
                 ) as connection:
                     self.register_child(connection)
+
+                    await asyncio.wait(
+                        [
+                            connection.wait_ready(),
+                            connection.wait_closed(),
+                        ],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    if connection.ready:
+                        pass
 
                     if (
                         await connection.wait_closed() != \

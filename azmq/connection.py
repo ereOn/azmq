@@ -4,8 +4,6 @@ Implements a ZMTP connection.
 
 import asyncio
 
-from pyslot import Signal
-
 from .common import ClosableAsyncObject
 from .errors import ProtocolError
 from .log import logger
@@ -32,13 +30,20 @@ class Connection(ClosableAsyncObject):
     If closed with `CLOSE_RETRY`, instructs the managing engine to retry the
     connection.
     """
-    def __init__(self, reader, writer, attributes):
-        super().__init__()
+    def __init__(self, reader, writer, attributes, **kwargs):
+        super().__init__(**kwargs)
         self.reader = reader
         self.writer = writer
         self.attributes = attributes
-        self.on_ready = Signal()
-        self.run_task = asyncio.ensure_future(self.run())
+        self._ready_future = asyncio.Future(loop=self.loop)
+        self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
+
+    @property
+    def ready(self):
+        return self._ready_future.done()
+
+    async def wait_ready(self):
+        await self._ready_future
 
     async def on_close(self, result):
         self.writer.close()
@@ -99,6 +104,7 @@ class Connection(ClosableAsyncObject):
 
             peer_attributes = load_ready_command(command_data)
             logger.debug("Peer attributes: %s", peer_attributes)
+            self._ready_future.set_result(None)
         else:
             logger.warning("Unsupported mechanism: %s.", mechanism)
             return
