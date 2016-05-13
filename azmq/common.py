@@ -4,6 +4,7 @@ Common utility classes and functions.
 
 import asyncio
 
+from functools import wraps
 from pyslot import Signal
 
 from .log import logger
@@ -17,6 +18,20 @@ class AsyncObject(object):
         self.loop = loop or asyncio.get_event_loop()
 
 
+def cancel_on_closing(coro):
+    """
+    Automatically cancels a coroutine when the defining instance gets closed.
+
+    :param coro: The coroutine to cancel on closing.
+    :returns: A decorated coroutine.
+    """
+    @wraps(coro)
+    async def wrapper(self, *args, **kwargs):
+        return await self.await_until_closing(coro(self, *args, **kwargs))
+
+    return wrapper
+
+
 class ClosableAsyncObject(AsyncObject):
     """
     Base class for objects that can be asynchronously closed and awaited.
@@ -24,7 +39,7 @@ class ClosableAsyncObject(AsyncObject):
     def __init__(self, *args, loop=None, **kwargs):
         super().__init__(loop=loop)
         self._closed_future = asyncio.Future(loop=self.loop)
-        self.closing = False
+        self._closing = asyncio.Event(loop=self.loop)
         self.on_closed = Signal()
         logger.debug("%s opened.", self.__class__.__name__)
         self.on_open(*args, **kwargs)
@@ -36,6 +51,16 @@ class ClosableAsyncObject(AsyncObject):
         self.close()
 
     @property
+    def closing(self):
+        return self._closing.is_set()
+
+    async def wait_closing(self):
+        """
+        Wait for the instance to be closing.
+        """
+        await self._closing.wait()
+
+    @property
     def closed(self):
         return self._closed_future.done()
 
@@ -45,6 +70,27 @@ class ClosableAsyncObject(AsyncObject):
         """
         await self._closed_future
         return self._closed_future.result()
+
+    async def await_until_closing(self, coro):
+        """
+        Wait for some task to complete but aborts as soon asthe instance is
+        being closed.
+
+        :param coro: The coroutine or future-like object to wait for.
+        """
+        wait_task = asyncio.ensure_future(self.wait_closing(), loop=self.loop)
+        coro_task = asyncio.ensure_future(coro, loop=self.loop)
+        done, pending = await asyncio.wait(
+            [wait_task, coro_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in pending:
+            task.cancel()
+
+        # It could be that the previous instructions cancelled coro_task if it
+        # wasn't done yet.
+        return await coro_task
 
     def on_open(self):
         """
@@ -113,7 +159,7 @@ class ClosableAsyncObject(AsyncObject):
         """
         if not self.closed and not self.closing:
             logger.debug("%s closing...", self.__class__.__name__)
-            self.closing = True
+            self._closing.set()
             future = asyncio.ensure_future(self.on_close(result))
             future.add_done_callback(self._set_closed)
 

@@ -8,6 +8,7 @@ import concurrent
 import pytest
 import sys
 import zmq
+import threading
 
 from logging import getLogger
 
@@ -35,13 +36,15 @@ async def test_tcp_client_rep_socket(event_loop):
     ctx = zmq.Context()
     sock = ctx.socket(zmq.REP)
     sock.bind('tcp://127.0.0.1:3333')
+
     # This is temporary. We should test the higher-level implementation
     # instead.
 
     async with azmq.Context(loop=event_loop) as context:
         socket = context.socket(azmq.REQ)
         socket.connect('tcp://127.0.0.1:3333')
-        await asyncio.sleep(1)
+        await socket.send_multipart([b'hello', b'world'])
+        logger.info("Received: %r", sock.recv_multipart())
         logger.info("Wait is over.")
 
     assert 0

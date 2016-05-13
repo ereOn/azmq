@@ -5,6 +5,7 @@ Message parsing/producing utilities.
 import struct
 
 from io import BytesIO
+from itertools import islice
 
 from .errors import ProtocolError
 
@@ -62,6 +63,55 @@ def write_command(buffer, name, data):
     buffer.write(data)
 
 
+def write_frame_more(buffer, frame):
+    """
+    Write a frame that will be followed by other frames.
+
+    :param buffer: The buffer to write to.
+    :param frame: The frame to write.
+    """
+    body_len = len(frame)
+
+    if body_len < 256:
+        buffer.write(struct.pack('BB', 0x01, body_len))
+    else:
+        buffer.write(struct.pack('BQ', 0x03, body_len))
+
+    buffer.write(bytes(frame))
+
+
+def write_frame_last(buffer, frame):
+    """
+    Write the last frame of a sequence.
+
+    :param buffer: The buffer to write to.
+    :param frame: The frame to write.
+    """
+    body_len = len(frame)
+
+    if body_len < 256:
+        buffer.write(struct.pack('BB', 0x00, body_len))
+    else:
+        buffer.write(struct.pack('BQ', 0x02, body_len))
+
+    buffer.write(bytes(frame))
+
+
+def write_frames(buffer, frames):
+    """
+    Write a sequence of frames.
+
+    :param buffer: The buffer to write to.
+    :param frame: The frames to write. Cannot be empty.
+    """
+    assert frames
+
+    for frame in islice(frames, len(frames) - 1):
+        write_frame_more(buffer, frame)
+
+    write_frame_last(buffer, frames[-1])
+
+
 async def read_first_greeting(buffer):
     """
     Read the first greeting from the specified buffer.
@@ -95,30 +145,91 @@ async def read_second_greeting(buffer):
     return version, mechanism, as_server
 
 
+class Command(object):
+    __slots__ = [
+        'name',
+        'data',
+    ]
+
+    def __init__(self, name, data):
+        self.name = name
+        self.data = data
+
+    def __bytes__(self):
+        return self.data
+
+    def __len__(self):
+        return len(self.data)
+
+
+class Frame(object):
+    __slots__ = [
+        'body',
+        'last',
+    ]
+
+    def __init__(self, body, last):
+        self.body = body
+        self.last = last
+
+    def __repr__(self):
+        return repr(self.body)
+
+    def __bytes__(self):
+        return self.body
+
+    def __len__(self):
+        return len(self.data)
+
+
+async def read_traffic(buffer):
+    """
+    Read a command or a frame.
+
+    :param buffer: The buffer to read from.
+    :returns: The command or frame.
+    """
+    traffic_size_type = struct.unpack('B', await buffer.readexactly(1))[0]
+
+    if traffic_size_type in {0x00, 0x01, 0x04}:
+        traffic_size = struct.unpack('B', await buffer.readexactly(1))[0]
+    elif traffic_size_type in {0x02, 0x03, 0x06}:
+        traffic_size = struct.unpack('!Q', await buffer.readexactly(8))[0]
+    else:
+        raise ProtocolError(
+            "Unexpected traffic size type: %0x" % traffic_size_type,
+        )
+
+    if traffic_size_type in {0x00, 0x01, 0x02, 0x03}:
+        frame_body = await buffer.readexactly(traffic_size)
+        frame_last = traffic_size_type in {0x00, 0x02}
+
+        return Frame(body=frame_body, last=frame_last)
+    else:
+        command_name_size = struct.unpack('B', await buffer.readexactly(1))[0]
+        command_name = await buffer.readexactly(command_name_size)
+        command_data = await buffer.readexactly(
+            traffic_size - command_name_size - 1,
+        )
+
+        return Command(name=command_name, data=command_data)
+
+
 async def read_command(buffer):
     """
     Read a command.
 
     :param buffer: The buffer to read from.
-    :returns: The command name and data.
+    :returns: The command.
     """
-    command_size_type = struct.unpack('B', await buffer.readexactly(1))[0]
+    command = await read_traffic(buffer)
 
-    if command_size_type == 0x04:
-        command_size = struct.unpack('B', await buffer.readexactly(1))[0]
-    elif command_size_type == 0x06:
-        command_size = struct.unpack('!Q', await buffer.readexactly(8))[0]
-    else:
+    if not isinstance(command, Command):
         raise ProtocolError(
-            "Unexpected command size type: %0x" % command_size_type,
+            "Expected a command but got a frame instead (%r)" % command
         )
 
-    command_name_size = struct.unpack('B', await buffer.readexactly(1))[0]
-    command_name = await buffer.readexactly(command_name_size)
-    command_data = await buffer.readexactly(
-        command_size - command_name_size - 1,
-    )
-    return command_name, command_data
+    return command
 
 
 def dump_ready_command(values):
@@ -138,6 +249,7 @@ def dump_ready_command(values):
         result.write(value)
 
     return result.getvalue()
+
 
 def load_ready_command(data):
     """

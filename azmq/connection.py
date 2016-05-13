@@ -8,13 +8,16 @@ from .common import ClosableAsyncObject
 from .errors import ProtocolError
 from .log import logger
 from .messaging import (
+    Frame,
     dump_ready_command,
     load_ready_command,
     read_command,
     read_first_greeting,
     read_second_greeting,
+    read_traffic,
     write_command,
     write_first_greeting,
+    write_frames,
     write_second_greeting,
 )
 
@@ -37,6 +40,8 @@ class Connection(ClosableAsyncObject):
         self.attributes = attributes
         self._ready_future = asyncio.Future(loop=self.loop)
         self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
+        self.inbox = asyncio.Queue()
+        self.outbox = asyncio.Queue()
 
     @property
     def ready(self):
@@ -96,15 +101,50 @@ class Connection(ClosableAsyncObject):
                 b'READY',
                 dump_ready_command(self.attributes),
             )
-            command_name, command_data = await read_command(self.reader)
+            command = await read_command(self.reader)
 
-            if command_name != b'READY':
-                logger.warning("Unexpected command: %s.", command_name)
+            if command.name != b'READY':
+                logger.warning("Unexpected command: %s.", command.name)
                 return
 
-            peer_attributes = load_ready_command(command_data)
+            peer_attributes = load_ready_command(command.data)
             logger.debug("Peer attributes: %s", peer_attributes)
-            self._ready_future.set_result(None)
         else:
             logger.warning("Unsupported mechanism: %s.", mechanism)
             return
+
+        logger.debug("Connection is now ready to read and write.")
+        self._ready_future.set_result(None)
+
+        read_task = asyncio.ensure_future(self.read(), loop=self.loop)
+        write_task = asyncio.ensure_future(self.write(), loop=self.loop)
+
+        try:
+            await self.await_until_closing(
+                asyncio.gather(read_task, write_task, loop=self.loop),
+            )
+        except asyncio.CancelledError:
+            logger.debug(
+                "Read/write cycle interrupted. Connection will die soon.",
+            )
+
+    async def read(self):
+        frames = []
+
+        while True:
+            traffic = await read_traffic(self.reader)
+
+            if isinstance(traffic, Frame):
+                frames.append(traffic)
+
+                if traffic.last:
+                    await self.inbox.put(frames)
+                    frames = []
+            else:
+                # TODO: Handle potential commands.
+                pass
+
+    async def write(self):
+        while True:
+            frames = await self.outbox.get()
+            write_frames(self.writer, frames)
