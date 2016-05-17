@@ -11,6 +11,9 @@ from .common import (
     CompositeClosableAsyncObject,
     cancel_on_closing,
 )
+from .constants import (
+    REQ,
+)
 from .errors import UnsupportedSchemeError
 from .engines.tcp import TCPClientEngine
 from .log import logger
@@ -31,6 +34,13 @@ class Socket(CompositeClosableAsyncObject):
         self.identity = b''
         self.engines = {}
         self.connections = RoundRobinList()
+
+        if self.type == REQ:
+            self._connection = None
+            self._recv_func = self._recv_req
+            self._send_func = self._send_req
+        else:
+            raise RuntimeError("Unsupported socket type: %r" % self.type)
 
     @property
     def attributes(self):
@@ -74,14 +84,15 @@ class Socket(CompositeClosableAsyncObject):
         logger.debug("Unregistering active connection: %s", connection)
         self.connections.remove(connection)
 
-    @cancel_on_closing
-    async def send_multipart(self, frames):
-        connection = await self.connections.next()
-        # TODO: Only add the empty frame if the socket type matches.
-        await connection.outbox.put([b''] + frames)
+    async def _send_req(self, frames):
+        assert self._connection is None
+        self._connection = await self.connections.next()
+        await self._connection.outbox.put([b''] + frames)
 
-    @cancel_on_closing
-    async def recv_multipart(self):
+    async def _recv_req(self, frames):
+        # TODO: The current implementation prevents waiting before we send.
+        # This sucks.
+        assert self._connection
         await self.connections.wait_not_empty()
         done, pending = await asyncio.wait(
             [connection.inbox.get() for connection in self.connections],
@@ -95,3 +106,11 @@ class Socket(CompositeClosableAsyncObject):
             task.cancel()
 
         return result
+
+    @cancel_on_closing
+    async def send_multipart(self, frames):
+        return await self._send_func(frames=frames)
+
+    @cancel_on_closing
+    async def recv_multipart(self):
+        return await self._recv_func()
