@@ -4,6 +4,8 @@ Implements a ZMTP connection.
 
 import asyncio
 
+from contextlib import contextmanager
+
 from .common import ClosableAsyncObject
 from .errors import ProtocolError
 from .log import logger
@@ -42,6 +44,7 @@ class Connection(ClosableAsyncObject):
         self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
         self.inbox = asyncio.Queue()
         self.outbox = asyncio.Queue()
+        self._discard_incoming_messages = False
 
     @property
     def ready(self):
@@ -54,6 +57,28 @@ class Connection(ClosableAsyncObject):
         self.writer.close()
         await self.run_task
         return result
+
+    @contextmanager
+    def discard_incoming_messages(self, clear=True):
+        """
+        Discard all incoming messages for the time of the context manager.
+
+        :param clear: A flag that, if set, also clears already received (but
+            not read) incoming messages from the inbox. Default is `True`.
+        """
+        if clear:
+            # Flush any received message so far.
+            while not self.inbox.empty():
+                self.inbox.get_nowait()
+
+        # This allows nesting of discard_incoming_messages() calls.
+        previous = self._discard_incoming_messages
+        self._discard_incoming_messages = True
+
+        try:
+            yield
+        finally:
+            self._discard_incoming_messages = previous
 
     async def run(self):
         try:
@@ -138,7 +163,9 @@ class Connection(ClosableAsyncObject):
                 frames.append(traffic)
 
                 if traffic.last:
-                    await self.inbox.put(frames)
+                    if not self._discard_incoming_messages:
+                        await self.inbox.put(frames)
+
                     frames = []
             else:
                 # TODO: Handle potential commands.
