@@ -43,6 +43,8 @@ async def test_tcp_client_rep_socket(event_loop):
         sockb.bind('tcp://127.0.0.1:3333')
         await sockb.send_multipart([b'hello', b'world'])
         logger.info("Received: %r", await asyncio.wait_for(socket.recv_multipart(), 1))
+        await socket.send_multipart([b'hello', b'world'])
+        logger.info("Received: %r", await asyncio.wait_for(sockb.recv_multipart(), 1))
         logger.info("Wait is over.")
 
     assert 0

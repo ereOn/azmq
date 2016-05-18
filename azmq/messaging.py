@@ -179,7 +179,7 @@ class Frame(object):
         return self.body
 
     def __len__(self):
-        return len(self.data)
+        return len(self.body)
 
     def __eq__(self, other):
         if isinstance(other, Frame):
