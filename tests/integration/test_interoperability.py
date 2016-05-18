@@ -34,17 +34,22 @@ def event_loop():
 @pytest.mark.asyncio
 async def test_tcp_client_rep_socket(event_loop):
     ctx = zmq.Context()
-    sock = ctx.socket(zmq.REP)
+    sock = ctx.socket(zmq.REQ)
     sock.bind('tcp://127.0.0.1:3333')
 
     # This is temporary. We should test the higher-level implementation
     # instead.
 
     async with azmq.Context(loop=event_loop) as context:
-        socket = context.socket(azmq.REQ)
+        socket = context.socket(azmq.REP)
         socket.connect('tcp://127.0.0.1:3333')
-        await socket.send_multipart([b'hello', b'world'])
-        logger.info("Received: %r", sock.recv_multipart())
+        thread = threading.Thread(
+            target=sock.send_multipart,
+            args=[[b'hello', b'world']],
+        )
+        thread.start()
+        logger.info("Received: %r", await asyncio.wait_for(socket.recv_multipart(), 1))
+        thread.join()
         logger.info("Wait is over.")
 
     assert 0

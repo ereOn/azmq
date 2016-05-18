@@ -4,6 +4,11 @@ A list-like container that allows fair access to its elements.
 
 import asyncio
 
+from itertools import (
+    chain,
+    islice,
+)
+
 from .common import AsyncObject
 
 
@@ -14,23 +19,30 @@ class RoundRobinList(AsyncObject):
         self._current = 0
         self._not_empty = asyncio.Event(loop=self.loop)
 
+    def __bool__(self):
+        return bool(self._values)
+
     def __iter__(self):
-        return iter(self._values)
+        return islice(
+            chain(iter(self._values), iter(self._values)),
+            self._current,
+            self._current + len(self._values),
+        )
 
     async def wait_not_empty(self):
         await self._not_empty.wait()
 
-    async def next(self):
+    async def get_next(self):
         await self.wait_not_empty()
+        return self._values[self.next()]
 
-        assert self._values
+    def next(self):
+        if self._current < len(self._values) - 1:
+            self._current += 1
+        else:
+            self._current = 0
 
-        while True:
-            if self._current < len(self._values):
-                self._current += 1
-                return self._values[self._current - 1]
-            else:
-                self._current = 0
+        return self._current
 
     def append(self, value):
         self._values.append(value)

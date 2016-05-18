@@ -6,7 +6,10 @@ import asyncio
 
 from contextlib import contextmanager
 
-from .common import ClosableAsyncObject
+from .common import (
+    ClosableAsyncObject,
+    cancel_on_closing,
+)
 from .errors import ProtocolError
 from .log import logger
 from .messaging import (
@@ -57,6 +60,16 @@ class Connection(ClosableAsyncObject):
         self.writer.close()
         await self.run_task
         return result
+
+    @cancel_on_closing
+    async def read_frames(self):
+        return await self.inbox.get()
+
+    @cancel_on_closing
+    async def write_frames(self, frames):
+        # Writing on a closing connection silently discards the messages.
+        if not self.closing:
+            await self.outbox.put(frames)
 
     @contextmanager
     def discard_incoming_messages(self, clear=True):

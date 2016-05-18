@@ -181,6 +181,17 @@ class Frame(object):
     def __len__(self):
         return len(self.data)
 
+    def __eq__(self, other):
+        if isinstance(other, Frame):
+            return self.body == other.body and self.last == other.last
+        elif isinstance(other, bytes):
+            return self.body == other
+
+        return NotImplemented
+
+    def __ne__(self, other):
+        return not self == other
+
 
 async def read_traffic(buffer):
     """

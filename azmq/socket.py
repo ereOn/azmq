@@ -13,6 +13,7 @@ from .common import (
     cancel_on_closing,
 )
 from .constants import (
+    REP,
     REQ,
 )
 from .errors import (
@@ -46,6 +47,13 @@ class Socket(CompositeClosableAsyncObject):
             self._current_connection = asyncio.Future(loop=self.loop)
             self.recv_multipart = self._recv_req
             self.send_multipart = self._send_req
+        elif self.type == REP:
+            # This future holds the last connection we received a request from
+            # (or none, if no request was received yet). This allows to start
+            # receiving before we send.
+            self._current_connection = asyncio.Future(loop=self.loop)
+            self.recv_multipart = self._recv_rep
+            self.send_multipart = self._send_rep
         else:
             raise RuntimeError("Unsupported socket type: %r" % self.type)
 
@@ -91,6 +99,40 @@ class Socket(CompositeClosableAsyncObject):
         logger.debug("Unregistering active connection: %s", connection)
         self.connections.remove(connection)
 
+    async def _fair_recv(self):
+        """
+        Receive from all the existing connections, rotating the list of
+        connections every time.
+
+        :returns: A pair of connection, frames.
+        """
+        await self.connections.wait_not_empty()
+
+        # This offsets the list, which helps us provide fair-queuing.
+        self.connections.next()
+        connections = list(self.connections)
+
+        read_tasks = [
+            asyncio.ensure_future(connection.read_frames(), loop=self.loop)
+            for connection in connections
+        ]
+        done, pending = await asyncio.wait(
+            read_tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        connection, read_task = next(
+            (conn, read_tasks[index])
+            for index, conn in enumerate(connections)
+            if read_tasks[index] in done
+        )
+
+        for task in chain(done, pending):
+            if task is not read_task:
+                task.cancel()
+
+        return connection, await read_task
+
     @cancel_on_closing
     async def _send_req(self, frames):
         if self._current_connection.done():
@@ -99,12 +141,12 @@ class Socket(CompositeClosableAsyncObject):
                 "from it first",
             )
 
-        connection = await self.connections.next()
-        await connection.outbox.put([b''] + frames)
+        connection = await self.connections.get_next()
+        await connection.write_frames([b''] + frames)
         self._current_connection.set_result(connection)
 
     @cancel_on_closing
-    async def _recv_req(self, frames):
+    async def _recv_req(self):
         await self._current_connection
         connection = self._current_connection.result()
 
@@ -120,4 +162,30 @@ class Socket(CompositeClosableAsyncObject):
                 if conn is not connection:
                     stack.enter_context(conn.discard_incoming_messages())
 
-            return await connection.inbox.get()
+            return await connection.read_frames()
+
+    @cancel_on_closing
+    async def _send_rep(self, frames):
+        await self._current_connection
+        connection, envelope = self._current_connection.result()
+
+        # Let's allow reads back as soon as we know on which connection to
+        # receive.
+        self._current_connection = asyncio.Future(loop=self.loop)
+
+        await connection.write_frames(envelope + frames)
+
+    @cancel_on_closing
+    async def _recv_rep(self):
+        if self._current_connection.done():
+            raise InvalidOperation(
+                "Cannot receive twice in a row from a REP socket. Please send "
+                "from it first",
+            )
+
+        connection, frames = await self._fair_recv()
+        delimiter_index = frames.index(b'')
+        envelope = frames[:delimiter_index + 1]
+        message = frames[delimiter_index + 1:]
+        self._current_connection.set_result((connection, envelope))
+        return message
