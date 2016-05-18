@@ -120,11 +120,18 @@ class TCPServerEngine(BaseEngine, CompositeClosableAsyncObject):
         return result
 
     async def run(self):
-        await asyncio.start_server(
+        server = await asyncio.start_server(
             self.handle_connection,
             host=self.host,
             port=self.port,
         )
+
+        try:
+            await self.wait_closing()
+        finally:
+            server.close()
+            await server.wait_closed()
+
 
     async def handle_connection(self, reader, writer):
         peername = ':'.join(map(str, writer.get_extra_info('peername')))

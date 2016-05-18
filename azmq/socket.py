@@ -189,7 +189,31 @@ class Socket(CompositeClosableAsyncObject):
                 if conn is not connection:
                     stack.enter_context(conn.discard_incoming_messages())
 
-            return await connection.read_frames()
+            frames = await connection.read_frames()
+
+            # We need to get rid of the empty delimiter.
+            if frames[0] != b'':
+                logger.warning(
+                    "Received unexpected reply (%r) in REQ socket. Closing "
+                    "connection. The recv() call will NEVER return !",
+                    frames,
+                )
+                connection.close()
+
+                # This may seem weird but we must treat these errors as if the
+                # peer did never reply, which means blocking forever (at least
+                # until the socket is closed).
+                #
+                # ZMQ best-practices dictate the user should recreate the socket
+                # anyway in case of timeouts and there is no other sensible
+                # course of action: we can't return anything meaningful and
+                # throwing an error puts the burden on the user by forcing
+                # him/her to handle two possible outcomes.
+                forever = asyncio.Future(loop=self.loop)
+                await forever
+
+            frames.pop(0)
+            return frames
 
     @cancel_on_closing
     async def _send_rep(self, frames):
