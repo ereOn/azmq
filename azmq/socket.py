@@ -20,7 +20,10 @@ from .errors import (
     UnsupportedSchemeError,
     InvalidOperation,
 )
-from .engines.tcp import TCPClientEngine
+from .engines.tcp import (
+    TCPClientEngine,
+    TCPServerEngine,
+)
 from .log import logger
 from .round_robin_list import RoundRobinList
 
@@ -37,7 +40,8 @@ class Socket(CompositeClosableAsyncObject):
         self.type = type
         self.context = context
         self.identity = b''
-        self.engines = {}
+        self.outgoing_engines = {}
+        self.incoming_engines = {}
         self.connections = RoundRobinList()
 
         if self.type == REQ:
@@ -82,13 +86,36 @@ class Socket(CompositeClosableAsyncObject):
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
 
-        self.engines[url] = engine
+        self.outgoing_engines[url] = engine
         self.register_child(engine)
 
     def disconnect(self, endpoint):
         url = urlsplit(endpoint)
 
-        engine = self.engines.pop(url)
+        engine = self.outgoing_engines.pop(url)
+        engine.close()
+
+    def bind(self, endpoint):
+        url = urlsplit(endpoint)
+
+        if url.scheme == 'tcp':
+            engine = TCPServerEngine(
+                host=url.hostname,
+                port=url.port,
+                attributes=self.attributes,
+            )
+            engine.on_connection_ready.connect(self.register_connection)
+            engine.on_connection_lost.connect(self.unregister_connection)
+        else:
+            raise UnsupportedSchemeError(scheme=url.scheme)
+
+        self.incoming_engines[url] = engine
+        self.register_child(engine)
+
+    def unbind(self, endpoint):
+        url = urlsplit(endpoint)
+
+        engine = self.incoming_engines.pop(url)
         engine.close()
 
     def register_connection(self, connection):

@@ -41,12 +41,12 @@ implemented already):
 
 - Those transports:
   * [x] TCP client
-  * [ ] TCP server
+  * [x] TCP server
   * [ ] Inproc
   * [ ] UNIX sockets
 
 Also, the intended API tries to be close to the one of pyzmq, but not too
-close. Here is an **non-exhaustive** list of some difference in the APIs:
+close. Here is an **non-exhaustive** list of some differences in the APIs:
 
 - **AZMQ** methods never take a `timeout` parameter. In the asyncio world, you
   just use
