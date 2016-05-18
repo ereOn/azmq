@@ -4,10 +4,7 @@ TCP engines.
 
 import asyncio
 
-from ..common import (
-    ClosableAsyncObject,
-    CompositeClosableAsyncObject,
-)
+from ..common import CompositeClosableAsyncObject
 from ..connection import Connection
 from ..log import logger
 
@@ -78,7 +75,7 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
 
                     try:
                         if (
-                            await connection.wait_closed() != \
+                            await connection.wait_closed() !=
                             Connection.CLOSE_RETRY
                         ) or self.closing:
                             logger.debug(
@@ -131,7 +128,6 @@ class TCPServerEngine(BaseEngine, CompositeClosableAsyncObject):
         finally:
             server.close()
             await server.wait_closed()
-
 
     async def handle_connection(self, reader, writer):
         peername = ':'.join(map(str, writer.get_extra_info('peername')))

@@ -4,7 +4,6 @@ library).
 """
 
 import asyncio
-import concurrent
 import pytest
 import sys
 import zmq

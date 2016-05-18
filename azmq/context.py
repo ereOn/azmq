@@ -2,8 +2,6 @@
 ZMQ context class implementation.
 """
 
-import asyncio
-
 from .common import CompositeClosableAsyncObject
 from .socket import Socket
 

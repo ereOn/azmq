@@ -204,11 +204,11 @@ class Socket(CompositeClosableAsyncObject):
                 # peer did never reply, which means blocking forever (at least
                 # until the socket is closed).
                 #
-                # ZMQ best-practices dictate the user should recreate the socket
-                # anyway in case of timeouts and there is no other sensible
-                # course of action: we can't return anything meaningful and
-                # throwing an error puts the burden on the user by forcing
-                # him/her to handle two possible outcomes.
+                # ZMQ best-practices dictate the user should recreate the
+                # socket anyway in case of timeouts and there is no other
+                # sensible course of action: we can't return anything
+                # meaningful and throwing an error puts the burden on the user
+                # by forcing him/her to handle two possible outcomes.
                 forever = asyncio.Future(loop=self.loop)
                 await forever
 

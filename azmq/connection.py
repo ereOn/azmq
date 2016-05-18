@@ -26,6 +26,7 @@ from .messaging import (
     write_second_greeting,
 )
 
+
 class Connection(ClosableAsyncObject):
     CLOSE_RETRY = object()
 

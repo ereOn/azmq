@@ -252,6 +252,7 @@ class AsyncTaskObject(ClosableAsyncObject):
         Should be redefined by child-classes.
         """
 
+
 class AsyncTimeout(AsyncTaskObject):
     """
     A resetable asynchronous timeout.
