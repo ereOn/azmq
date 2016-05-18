@@ -26,11 +26,12 @@ implementation.
 **AZMQ** is currently **NOT** in a production-ready state. The code has not
 been performance-tested let alone optimized. This will come later.
 
-The main focus at the moment is to provide support for:
+The main focus at the moment is to provide support for (checked items are
+implemented already):
 
 - All socket types:
-  * [ ] REQ
-  * [ ] REP
+  * [x] REQ
+  * [x] REP
   * [ ] DEALER
   * [ ] ROUTER
   * [ ] PUB
@@ -39,7 +40,7 @@ The main focus at the moment is to provide support for:
   * [ ] PULL
 
 - Those transports:
-  * [ ] TCP client
+  * [x] TCP client
   * [ ] TCP server
   * [ ] Inproc
   * [ ] UNIX sockets
