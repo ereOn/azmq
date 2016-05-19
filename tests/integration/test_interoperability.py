@@ -121,6 +121,32 @@ async def test_tcp_rep_socket(event_loop, socket_factory, connect_or_bind):
     'connect',
 ])
 @pytest.mark.asyncio
+async def test_tcp_dealer_socket(event_loop, socket_factory, connect_or_bind):
+    rep_socket = socket_factory.create(zmq.REP)
+    connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        frames = rep_socket.recv_multipart()
+        assert frames == [b'my', b'question']
+        rep_socket.send_multipart([b'your', b'answer'])
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(azmq.DEALER)
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+            await asyncio.wait_for(
+                socket.send_multipart([b'', b'my', b'question']),
+                1,
+            )
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            assert frames == [b'', b'your', b'answer']
+
+
+@pytest.mark.parametrize("link", [
+    'bind',
+    'connect',
+])
+@pytest.mark.asyncio
 async def test_tcp_big_messages(event_loop, socket_factory, connect_or_bind):
     rep_socket = socket_factory.create(zmq.REP)
     connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)

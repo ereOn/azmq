@@ -13,6 +13,7 @@ from .common import (
     cancel_on_closing,
 )
 from .constants import (
+    DEALER,
     REP,
     REQ,
 )
@@ -60,6 +61,9 @@ class Socket(CompositeClosableAsyncObject):
             self._current_connection = asyncio.Future(loop=self.loop)
             self.recv_multipart = self._recv_rep
             self.send_multipart = self._send_rep
+        elif self.type == DEALER:
+            self.recv_multipart = self._recv_dealer
+            self.send_multipart = self._send_dealer
         else:
             raise RuntimeError("Unsupported socket type: %r" % self.type)
 
@@ -169,7 +173,7 @@ class Socket(CompositeClosableAsyncObject):
                 "from it first",
             )
 
-        await self.fair_incoming_connections.wait_not_empty()
+        await self.fair_outgoing_connections.wait_not_empty()
         connection = next(iter(self.fair_outgoing_connections))
 
         await connection.write_frames([b''] + frames)
@@ -243,3 +247,16 @@ class Socket(CompositeClosableAsyncObject):
         message = frames[delimiter_index + 1:]
         self._current_connection.set_result((connection, envelope))
         return message
+
+    @cancel_on_closing
+    async def _send_dealer(self, frames):
+        await self.fair_outgoing_connections.wait_not_empty()
+        # FIXME: SHALL consider a peer as available only when it has a outgoing
+        # queue that is not full.
+        connection = next(iter(self.fair_outgoing_connections))
+        await connection.write_frames(frames)
+
+    @cancel_on_closing
+    async def _recv_dealer(self):
+        connection, frames = await self._fair_recv()
+        return frames

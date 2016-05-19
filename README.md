@@ -32,7 +32,7 @@ implemented already):
 - All socket types:
   * [x] REQ
   * [x] REP
-  * [ ] DEALER
+  * [x] DEALER (In progress. Waiting for: #3)
   * [ ] ROUTER
   * [ ] PUB
   * [ ] SUB
