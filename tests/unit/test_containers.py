@@ -5,10 +5,7 @@ Unit tests for containers.
 import asyncio
 import pytest
 
-from azmq.containers import (
-    AsyncList,
-    FairListProxy,
-)
+from azmq.containers import AsyncList
 
 
 async def assert_empty(l):

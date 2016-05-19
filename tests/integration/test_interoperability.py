@@ -5,7 +5,6 @@ library).
 
 import asyncio
 import pytest
-import sys
 import zmq
 
 from contextlib import (
