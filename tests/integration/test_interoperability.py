@@ -8,7 +8,10 @@ import pytest
 import sys
 import zmq
 
-from contextlib import contextmanager
+from contextlib import (
+    ExitStack,
+    contextmanager,
+)
 from logging import getLogger
 from threading import Thread
 
@@ -25,17 +28,15 @@ def pyzmq_context():
 
 
 @pytest.yield_fixture
-def req_socket(pyzmq_context):
-    socket = pyzmq_context.socket(zmq.REQ)
-    yield socket
-    socket.close()
+def socket_factory(pyzmq_context):
+    with ExitStack() as stack:
+        class SocketFactory(object):
+            def create(self, type_):
+                socket = pyzmq_context.socket(type_)
+                stack.callback(socket.close)
+                return socket
 
-
-@pytest.yield_fixture
-def rep_socket(pyzmq_context):
-    socket = pyzmq_context.socket(zmq.REP)
-    yield socket
-    socket.close()
+        yield SocketFactory()
 
 
 @pytest.fixture
@@ -68,7 +69,8 @@ def run_in_background(target, *args, **kwargs):
     'connect',
 ])
 @pytest.mark.asyncio
-async def test_tcp_req_socket(event_loop, rep_socket, connect_or_bind):
+async def test_tcp_req_socket(event_loop, socket_factory, connect_or_bind):
+    rep_socket = socket_factory.create(zmq.REP)
     connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)
 
     def run():
@@ -90,7 +92,8 @@ async def test_tcp_req_socket(event_loop, rep_socket, connect_or_bind):
     'connect',
 ])
 @pytest.mark.asyncio
-async def test_tcp_rep_socket(event_loop, req_socket, connect_or_bind):
+async def test_tcp_rep_socket(event_loop, socket_factory, connect_or_bind):
+    req_socket = socket_factory.create(zmq.REQ)
     connect_or_bind(req_socket, 'tcp://127.0.0.1:3333', reverse=True)
 
     def run():
