@@ -55,9 +55,9 @@ def write_command(buffer, name, data):
     body_len = len(name) + 1 + len(data)
 
     if body_len < 256:
-        buffer.write(struct.pack('BBB', 0x04, body_len, len(name)))
+        buffer.write(struct.pack('!BBB', 0x04, body_len, len(name)))
     else:
-        buffer.write(struct.pack('BQB', 0x06, body_len, len(name)))
+        buffer.write(struct.pack('!BQB', 0x06, body_len, len(name)))
 
     buffer.write(name)
     buffer.write(data)
@@ -73,9 +73,9 @@ def write_frame_more(buffer, frame):
     body_len = len(frame)
 
     if body_len < 256:
-        buffer.write(struct.pack('BB', 0x01, body_len))
+        buffer.write(struct.pack('!BB', 0x01, body_len))
     else:
-        buffer.write(struct.pack('BQ', 0x03, body_len))
+        buffer.write(struct.pack('!BQ', 0x03, body_len))
 
     buffer.write(bytes(frame))
 
@@ -90,9 +90,9 @@ def write_frame_last(buffer, frame):
     body_len = len(frame)
 
     if body_len < 256:
-        buffer.write(struct.pack('BB', 0x00, body_len))
+        buffer.write(struct.pack('!BB', 0x00, body_len))
     else:
-        buffer.write(struct.pack('BQ', 0x02, body_len))
+        buffer.write(struct.pack('!BQ', 0x02, body_len))
 
     buffer.write(bytes(frame))
 
@@ -203,7 +203,7 @@ async def read_traffic(buffer):
     traffic_size_type = struct.unpack('B', await buffer.readexactly(1))[0]
 
     if traffic_size_type in {0x00, 0x01, 0x04}:
-        traffic_size = struct.unpack('B', await buffer.readexactly(1))[0]
+        traffic_size = struct.unpack('!B', await buffer.readexactly(1))[0]
     elif traffic_size_type in {0x02, 0x03, 0x06}:
         traffic_size = struct.unpack('!Q', await buffer.readexactly(8))[0]
     else:
@@ -254,7 +254,7 @@ def dump_ready_command(values):
     for key, value in values.items():
         assert len(key) < 256
         assert len(value) < 2 ** 32
-        result.write(struct.pack('B', len(key)))
+        result.write(struct.pack('!B', len(key)))
         result.write(key)
         result.write(struct.pack('!I', len(value)))
         result.write(value)

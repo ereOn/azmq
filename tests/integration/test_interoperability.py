@@ -82,7 +82,10 @@ async def test_tcp_req_socket(event_loop, socket_factory, connect_or_bind):
         async with azmq.Context(loop=event_loop) as context:
             socket = context.socket(azmq.REQ)
             connect_or_bind(socket, 'tcp://127.0.0.1:3333')
-            await socket.send_multipart([b'my', b'question'])
+            await asyncio.wait_for(
+                socket.send_multipart([b'my', b'question']),
+                1,
+            )
             frames = await asyncio.wait_for(socket.recv_multipart(), 1)
             assert frames == [b'your', b'answer']
 
@@ -107,4 +110,33 @@ async def test_tcp_rep_socket(event_loop, socket_factory, connect_or_bind):
             connect_or_bind(socket, 'tcp://127.0.0.1:3333')
             frames = await asyncio.wait_for(socket.recv_multipart(), 1)
             assert frames == [b'my', b'question']
-            await socket.send_multipart([b'your', b'answer'])
+            await asyncio.wait_for(
+                socket.send_multipart([b'your', b'answer']),
+                1,
+            )
+
+
+@pytest.mark.parametrize("link", [
+    'bind',
+    'connect',
+])
+@pytest.mark.asyncio
+async def test_tcp_big_messages(event_loop, socket_factory, connect_or_bind):
+    rep_socket = socket_factory.create(zmq.REP)
+    connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        frames = rep_socket.recv_multipart()
+        assert frames == [b'1' * 500, b'2' * 100000]
+        rep_socket.send_multipart([b'3' * 500, b'4' * 100000])
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(azmq.REQ)
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+            await asyncio.wait_for(
+                socket.send_multipart([b'1' * 500, b'2' * 100000]),
+                1,
+            )
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            assert frames == [b'3' * 500, b'4' * 100000]
