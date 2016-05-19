@@ -18,20 +18,6 @@ logger = getLogger()
 
 
 @pytest.yield_fixture
-def event_loop():
-    if sys.platform == 'win32':
-        loop = asyncio.ProactorEventLoop()
-    else:
-        loop = asyncio.SelectorEventLoop()
-
-    asyncio.set_event_loop(loop)
-
-    yield loop
-
-    loop.run_until_complete(asyncio.wait(asyncio.Task.all_tasks()))
-
-
-@pytest.yield_fixture
 def pyzmq_context():
     context = zmq.Context()
     yield context

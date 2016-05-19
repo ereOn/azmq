@@ -25,7 +25,7 @@ from .engines.tcp import (
     TCPServerEngine,
 )
 from .log import logger
-from .round_robin_list import RoundRobinList
+from .containers import AsyncList
 
 
 class Socket(CompositeClosableAsyncObject):
@@ -42,7 +42,9 @@ class Socket(CompositeClosableAsyncObject):
         self.identity = b''
         self.outgoing_engines = {}
         self.incoming_engines = {}
-        self.connections = RoundRobinList()
+        self.connections = AsyncList()
+        self.fair_incoming_connections = self.connections.create_proxy()
+        self.fair_outgoing_connections = self.connections.create_proxy()
 
         if self.type == REQ:
             # This future holds the last connection we sent a request to (or
@@ -133,11 +135,10 @@ class Socket(CompositeClosableAsyncObject):
 
         :returns: A pair of connection, frames.
         """
-        await self.connections.wait_not_empty()
+        await self.fair_incoming_connections.wait_not_empty()
 
-        # This offsets the list, which helps us provide fair-queuing.
-        self.connections.next()
-        connections = list(self.connections)
+        # This rotates the list, implementing fair-queuing.
+        connections = list(self.fair_incoming_connections)
 
         read_tasks = [
             asyncio.ensure_future(connection.read_frames(), loop=self.loop)
@@ -168,7 +169,9 @@ class Socket(CompositeClosableAsyncObject):
                 "from it first",
             )
 
-        connection = await self.connections.get_next()
+        await self.fair_incoming_connections.wait_not_empty()
+        connection = next(iter(self.fair_outgoing_connections))
+
         await connection.write_frames([b''] + frames)
         self._current_connection.set_result(connection)
 
