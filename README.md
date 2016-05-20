@@ -38,6 +38,7 @@ implemented already):
   * [ ] SUB
   * [ ] PUSH
   * [ ] PULL
+  * [ ] PAIR
 
 - Those transports:
   * [x] TCP client
