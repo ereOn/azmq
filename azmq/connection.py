@@ -43,11 +43,12 @@ class Connection(ClosableAsyncObject):
         super().__init__(**kwargs)
         self.reader = reader
         self.writer = writer
-        self.attributes = attributes
+        self.socket_type = attributes['socket_type']
+        self.identity = attributes.get('identity', b'')
         self._ready_future = asyncio.Future(loop=self.loop)
         self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
-        self.inbox = asyncio.Queue()
-        self.outbox = asyncio.Queue()
+        self.inbox = asyncio.Queue(maxsize=attributes['max_inbox_size'])
+        self.outbox = asyncio.Queue(maxsize=attributes['max_outbox_size'])
         self._discard_incoming_messages = False
 
     @property
@@ -138,7 +139,10 @@ class Connection(ClosableAsyncObject):
             write_command(
                 self.writer,
                 b'READY',
-                dump_ready_command(self.attributes),
+                dump_ready_command({
+                    b'Socket-Type': self.socket_type,
+                    b'Identity': self.identity,
+                }),
             )
             command = await read_command(self.reader)
 

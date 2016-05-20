@@ -41,6 +41,8 @@ class Socket(CompositeClosableAsyncObject):
         self.type = type
         self.context = context
         self.identity = b''
+        self.max_inbox_size = 0
+        self.max_outbox_size = 0
         self._outgoing_engines = {}
         self._incoming_engines = {}
         self._connections = AsyncList()
@@ -70,11 +72,13 @@ class Socket(CompositeClosableAsyncObject):
     @property
     def attributes(self):
         attributes = {
-            b'Socket-Type': self.type,
+            'socket_type': self.type,
+            'max_inbox_size': self.max_inbox_size,
+            'max_outbox_size': self.max_outbox_size,
         }
 
         if self.identity:
-            attributes[b'Identity'] = self.identity
+            attributes['identity'] = self.identity
 
         return attributes
 
