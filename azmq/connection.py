@@ -11,7 +11,8 @@ from .common import (
     cancel_on_closing,
 )
 from .constants import (
-    ROUTER,
+    PUB,
+    XPUB,
     LEGAL_COMBINATIONS,
 )
 from .errors import ProtocolError
@@ -47,7 +48,7 @@ class Connection(ClosableAsyncObject):
         super().__init__(**kwargs)
         self.reader = reader
         self.writer = writer
-        self.socket_type = attributes['socket_type']
+        self.local_socket_type = attributes['socket_type']
         self.local_identity = attributes.get('identity', b'')
         self.identity = None
         self._ready_future = asyncio.Future(loop=self.loop)
@@ -66,6 +67,7 @@ class Connection(ClosableAsyncObject):
         self._can_write.set()
         self._discard_incoming_messages = False
         self._discard_outgoing_messages = False
+        self.subscriptions = []
 
     @property
     def ready(self):
@@ -195,7 +197,7 @@ class Connection(ClosableAsyncObject):
                 self.writer,
                 b'READY',
                 dump_ready_command({
-                    b'Socket-Type': self.socket_type,
+                    b'Socket-Type': self.local_socket_type,
                     b'Identity': self.local_identity,
                 }),
             )
@@ -208,12 +210,12 @@ class Connection(ClosableAsyncObject):
             peer_attributes = load_ready_command(command.data)
             logger.debug("Peer attributes: %s", peer_attributes)
 
-            if (self.socket_type, peer_attributes[b'socket-type']) not in \
+            if (self.local_socket_type, peer_attributes[b'socket-type']) not in \
                     LEGAL_COMBINATIONS:
                 logger.warning(
                     "Incompatible socket types (%s <-> %s). Killing the "
                     "connection.",
-                    self.socket_type.decode(),
+                    self.local_socket_type.decode(),
                     peer_attributes[b'socket-type'].decode(),
                 )
                 return
@@ -248,6 +250,17 @@ class Connection(ClosableAsyncObject):
                 "Read/write cycle interrupted. Connection will die soon.",
             )
 
+    def subscribe(self, topic):
+        self.subscriptions.append(topic)
+        logger.debug("Peer subscribed to topic %r.", topic)
+
+    def unsubscribe(self, topic):
+        try:
+            self.subscriptions.remove(topic)
+            logger.debug("Peer unsubscribed from topic %r.", topic)
+        except ValueError:
+            pass
+
     async def read(self):
         frames = []
 
@@ -255,17 +268,29 @@ class Connection(ClosableAsyncObject):
             traffic = await read_traffic(self.reader)
 
             if isinstance(traffic, Frame):
-                frames.append(traffic)
+                # ZMTP <=2.0 will send frames for subscriptions and
+                # unsubscriptions.
+                if traffic.body and self.local_socket_type in {PUB, XPUB}:
+                    type_ = traffic.body[0]
 
-                if traffic.last:
-                    if not self._discard_incoming_messages:
-                        await self._inbox.put(frames)
-                        self._can_read.set()
+                    if type_ == 1:
+                        self.subscribe(traffic.body[1:])
+                    elif type_ == 0:
+                        self.unsubscribe(traffic.body[1:])
+                else:
+                    frames.append(traffic)
 
-                    frames = []
+                    if traffic.last:
+                        if not self._discard_incoming_messages:
+                            await self._inbox.put(frames)
+                            self._can_read.set()
+
+                        frames = []
             else:
-                # TODO: Handle potential commands.
-                pass
+                if traffic.name == b'SUBSCRIBE':
+                    self.subscribe(traffic.data)
+                elif traffic.name == b'CANCEL':
+                    self.unsubscribe(traffic.data)
 
     async def write(self):
         while True:

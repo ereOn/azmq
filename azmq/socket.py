@@ -369,4 +369,11 @@ class Socket(CompositeClosableAsyncObject):
 
     @cancel_on_closing
     async def _send_pub(self, frames):
-        pass
+        topic = frames[0]
+
+        for conn in self._connections:
+            if conn.can_write() and next(
+                (topic.startswith(subs) for subs in conn.subscriptions),
+                None,
+            ):
+                await conn.write_frames(frames)

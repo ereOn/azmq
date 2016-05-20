@@ -12,7 +12,10 @@ from contextlib import (
     contextmanager,
 )
 from logging import getLogger
-from threading import Thread
+from threading import (
+    Event,
+    Thread,
+)
 
 import azmq
 
@@ -53,11 +56,19 @@ def connect_or_bind(link):
 
 @contextmanager
 def run_in_background(target, *args, **kwargs):
-    thread = Thread(target=target, args=args, kwargs=kwargs)
+    event = Event()
+
+    def extended_target(*args, **kwargs):
+        try:
+            return target(*args, **kwargs)
+        finally:
+            event.set()
+
+    thread = Thread(target=extended_target, args=args, kwargs=kwargs)
     thread.start()
 
     try:
-        yield
+        yield event
     finally:
         thread.join(5)
         assert not thread.isAlive()
@@ -184,11 +195,14 @@ async def test_tcp_pub_socket(event_loop, socket_factory, connect_or_bind):
         frames = sub_socket.recv_multipart()
         assert frames == [b'a', b'message']
 
-    with run_in_background(run):
+    with run_in_background(run) as thread_done_event:
         async with azmq.Context(loop=event_loop) as context:
             socket = context.socket(azmq.PUB)
             connect_or_bind(socket, 'tcp://127.0.0.1:3333')
-            await socket.send_multipart([b'a', b'message'])
+
+            while not thread_done_event.is_set():
+                await socket.send_multipart([b'a', b'message'])
+                await socket.send_multipart([b'b', b'wrong'])
 
 
 @pytest.mark.parametrize("link", [

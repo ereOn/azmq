@@ -34,7 +34,7 @@ implemented already):
   * [x] REP
   * [x] DEALER
   * [x] ROUTER
-  * [ ] PUB
+  * [x] PUB
   * [ ] SUB
   * [ ] PUSH
   * [ ] PULL
