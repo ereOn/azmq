@@ -47,8 +47,16 @@ class Connection(ClosableAsyncObject):
         self.identity = attributes.get('identity', b'')
         self._ready_future = asyncio.Future(loop=self.loop)
         self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
-        self.inbox = asyncio.Queue(maxsize=attributes['max_inbox_size'])
-        self.outbox = asyncio.Queue(maxsize=attributes['max_outbox_size'])
+        self._inbox = asyncio.Queue(
+            maxsize=attributes['max_inbox_size'],
+            loop=self.loop,
+        )
+        self._outbox = asyncio.Queue(
+            maxsize=attributes['max_outbox_size'],
+            loop=self.loop,
+        )
+        self._can_send = asyncio.Event(loop=self.loop)
+        self._can_send.set()
         self._discard_incoming_messages = False
 
     @property
@@ -58,6 +66,12 @@ class Connection(ClosableAsyncObject):
     async def wait_ready(self):
         await self._ready_future
 
+    def can_send(self):
+        return self._can_send.is_set()
+
+    async def wait_can_send(self):
+        await self._can_send.wait()
+
     async def on_close(self, result):
         self.writer.close()
         await self.run_task
@@ -65,13 +79,17 @@ class Connection(ClosableAsyncObject):
 
     @cancel_on_closing
     async def read_frames(self):
-        return await self.inbox.get()
+        result = await self._inbox.get()
+        return result
 
     @cancel_on_closing
     async def write_frames(self, frames):
         # Writing on a closing connection silently discards the messages.
         if not self.closing:
-            await self.outbox.put(frames)
+            await self._outbox.put(frames)
+
+            if self._outbox.full():
+                self._can_send.clear()
 
     @contextmanager
     def discard_incoming_messages(self, clear=True):
@@ -83,8 +101,8 @@ class Connection(ClosableAsyncObject):
         """
         if clear:
             # Flush any received message so far.
-            while not self.inbox.empty():
-                self.inbox.get_nowait()
+            while not self._inbox.empty():
+                self._inbox.get_nowait()
 
         # This allows nesting of discard_incoming_messages() calls.
         previous = self._discard_incoming_messages
@@ -182,7 +200,7 @@ class Connection(ClosableAsyncObject):
 
                 if traffic.last:
                     if not self._discard_incoming_messages:
-                        await self.inbox.put(frames)
+                        await self._inbox.put(frames)
 
                     frames = []
             else:
@@ -191,5 +209,6 @@ class Connection(ClosableAsyncObject):
 
     async def write(self):
         while True:
-            frames = await self.outbox.get()
+            frames = await self._outbox.get()
+            self._can_send.set()
             write_frames(self.writer, frames)
