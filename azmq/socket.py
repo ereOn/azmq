@@ -41,11 +41,11 @@ class Socket(CompositeClosableAsyncObject):
         self.type = type
         self.context = context
         self.identity = b''
-        self.outgoing_engines = {}
-        self.incoming_engines = {}
-        self.connections = AsyncList()
-        self.fair_incoming_connections = self.connections.create_proxy()
-        self.fair_outgoing_connections = self.connections.create_proxy()
+        self._outgoing_engines = {}
+        self._incoming_engines = {}
+        self._connections = AsyncList()
+        self._fair_incoming_connections = self._connections.create_proxy()
+        self._fair_outgoing_connections = self._connections.create_proxy()
 
         if self.type == REQ:
             # This future holds the last connection we sent a request to (or
@@ -92,13 +92,13 @@ class Socket(CompositeClosableAsyncObject):
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
 
-        self.outgoing_engines[url] = engine
+        self._outgoing_engines[url] = engine
         self.register_child(engine)
 
     def disconnect(self, endpoint):
         url = urlsplit(endpoint)
 
-        engine = self.outgoing_engines.pop(url)
+        engine = self._outgoing_engines.pop(url)
         engine.close()
 
     def bind(self, endpoint):
@@ -115,22 +115,22 @@ class Socket(CompositeClosableAsyncObject):
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
 
-        self.incoming_engines[url] = engine
+        self._incoming_engines[url] = engine
         self.register_child(engine)
 
     def unbind(self, endpoint):
         url = urlsplit(endpoint)
 
-        engine = self.incoming_engines.pop(url)
+        engine = self._incoming_engines.pop(url)
         engine.close()
 
     def register_connection(self, connection):
         logger.debug("Registering new active connection: %s", connection)
-        self.connections.append(connection)
+        self._connections.append(connection)
 
     def unregister_connection(self, connection):
         logger.debug("Unregistering active connection: %s", connection)
-        self.connections.remove(connection)
+        self._connections.remove(connection)
 
     async def _fair_recv(self):
         """
@@ -139,10 +139,10 @@ class Socket(CompositeClosableAsyncObject):
 
         :returns: A pair of connection, frames.
         """
-        await self.fair_incoming_connections.wait_not_empty()
+        await self._fair_incoming_connections.wait_not_empty()
 
         # This rotates the list, implementing fair-queuing.
-        connections = list(self.fair_incoming_connections)
+        connections = list(self._fair_incoming_connections)
 
         read_tasks = [
             asyncio.ensure_future(connection.read_frames(), loop=self.loop)
@@ -173,8 +173,8 @@ class Socket(CompositeClosableAsyncObject):
                 "from it first",
             )
 
-        await self.fair_outgoing_connections.wait_not_empty()
-        connection = next(iter(self.fair_outgoing_connections))
+        await self._fair_outgoing_connections.wait_not_empty()
+        connection = next(iter(self._fair_outgoing_connections))
 
         await connection.write_frames([b''] + frames)
         self._current_connection.set_result(connection)
@@ -192,7 +192,7 @@ class Socket(CompositeClosableAsyncObject):
         # received from other peers when processing incoming messages on the
         # current connection.
         with ExitStack() as stack:
-            for conn in self.connections:
+            for conn in self._connections:
                 if conn is not connection:
                     stack.enter_context(conn.discard_incoming_messages())
 
@@ -250,10 +250,10 @@ class Socket(CompositeClosableAsyncObject):
 
     @cancel_on_closing
     async def _send_dealer(self, frames):
-        await self.fair_outgoing_connections.wait_not_empty()
+        await self._fair_outgoing_connections.wait_not_empty()
         # FIXME: SHALL consider a peer as available only when it has a outgoing
         # queue that is not full.
-        connection = next(iter(self.fair_outgoing_connections))
+        connection = next(iter(self._fair_outgoing_connections))
         await connection.write_frames(frames)
 
     @cancel_on_closing
