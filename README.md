@@ -32,7 +32,7 @@ implemented already):
 - All socket types:
   * [x] REQ
   * [x] REP
-  * [x] DEALER (In progress. Waiting for: [azmq-3](https://github.com/ereOn/azmq/issues/3))
+  * [x] DEALER
   * [ ] ROUTER
   * [ ] PUB
   * [ ] SUB
