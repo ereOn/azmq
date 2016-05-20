@@ -3,6 +3,8 @@ A ZMQ socket class implementation.
 """
 
 import asyncio
+import random
+import struct
 
 from urllib.parse import urlsplit
 from itertools import chain
@@ -16,6 +18,7 @@ from .constants import (
     DEALER,
     REP,
     REQ,
+    ROUTER,
 )
 from .errors import (
     UnsupportedSchemeError,
@@ -48,6 +51,7 @@ class Socket(CompositeClosableAsyncObject):
         self._connections = AsyncList()
         self._fair_incoming_connections = self._connections.create_proxy()
         self._fair_outgoing_connections = self._connections.create_proxy()
+        self._base_identity = random.getrandbits(32)
 
         if self.type == REQ:
             # This future holds the last connection we sent a request to (or
@@ -66,6 +70,9 @@ class Socket(CompositeClosableAsyncObject):
         elif self.type == DEALER:
             self.recv_multipart = self._recv_dealer
             self.send_multipart = self._send_dealer
+        elif self.type == ROUTER:
+            self.recv_multipart = self._recv_router
+            self.send_multipart = self._send_router
         else:
             raise RuntimeError("Unsupported socket type: %r" % self.type)
 
@@ -130,11 +137,32 @@ class Socket(CompositeClosableAsyncObject):
 
     def register_connection(self, connection):
         logger.debug("Registering new active connection: %s", connection)
+
+        if self.type == ROUTER and not connection.identity:
+            connection.identity = self.generate_identity()
+            logger.info(
+                "Peer did not specify an identity. Generated one for him "
+                "(%r).",
+                connection.identity,
+            )
+
         self._connections.append(connection)
 
     def unregister_connection(self, connection):
         logger.debug("Unregistering active connection: %s", connection)
         self._connections.remove(connection)
+
+    def generate_identity(self):
+        """
+        Generate a unique but random identity.
+        """
+        identity = struct.pack('!BI', 0, self._base_identity)
+        self._base_identity += 1
+
+        if self._base_identity >= 2 ** 32:
+            self._base_identity = 0
+
+        return identity
 
     async def _fair_recv(self):
         """
@@ -290,4 +318,26 @@ class Socket(CompositeClosableAsyncObject):
     @cancel_on_closing
     async def _recv_dealer(self):
         connection, frames = await self._fair_recv()
+        return frames
+
+    @cancel_on_closing
+    async def _send_router(self, frames):
+        identity = frames.pop(0)
+
+        try:
+            connection = next(
+                conn for conn in self._connections
+                if conn.identity == identity and conn.can_write()
+            )
+        except StopIteration:
+            # We drop the messages as their is no suitable connection to write
+            # it to.
+            pass
+        else:
+            await connection.write_frames(frames)
+
+    @cancel_on_closing
+    async def _recv_router(self):
+        connection, frames = await self._fair_recv()
+        frames.insert(0, connection.identity)
         return frames

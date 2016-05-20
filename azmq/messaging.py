@@ -291,6 +291,6 @@ def load_ready_command(data):
 
         value = data[offset:offset + value_size]
         offset += value_size
-        result[name] = value
+        result[name.lower()] = value
 
     return result

@@ -10,6 +10,10 @@ from .common import (
     ClosableAsyncObject,
     cancel_on_closing,
 )
+from .constants import (
+    ROUTER,
+    LEGAL_COMBINATIONS,
+)
 from .errors import ProtocolError
 from .log import logger
 from .messaging import (
@@ -36,15 +40,16 @@ class Connection(ClosableAsyncObject):
     """
     Implements a ZMTP connection.
 
-    If closed with `CLOSE_RETRY`, instructs the managing engine to retry the
-    connection.
+    If closed with `CLOSE_RETRY`, give a hint to the managing engine to retry
+    the connection, if possible.
     """
     def __init__(self, reader, writer, attributes, **kwargs):
         super().__init__(**kwargs)
         self.reader = reader
         self.writer = writer
         self.socket_type = attributes['socket_type']
-        self.identity = attributes.get('identity', b'')
+        self.local_identity = attributes.get('identity', b'')
+        self.identity = None
         self._ready_future = asyncio.Future(loop=self.loop)
         self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
         self._inbox = asyncio.Queue(
@@ -173,7 +178,7 @@ class Connection(ClosableAsyncObject):
                 b'READY',
                 dump_ready_command({
                     b'Socket-Type': self.socket_type,
-                    b'Identity': self.identity,
+                    b'Identity': self.local_identity,
                 }),
             )
             command = await read_command(self.reader)
@@ -184,6 +189,28 @@ class Connection(ClosableAsyncObject):
 
             peer_attributes = load_ready_command(command.data)
             logger.debug("Peer attributes: %s", peer_attributes)
+
+            if (self.socket_type, peer_attributes[b'socket-type']) not in \
+                    LEGAL_COMBINATIONS:
+                logger.warning(
+                    "Incompatible socket types (%s <-> %s). Killing the "
+                    "connection.",
+                    self.socket_type.decode(),
+                    peer_attributes[b'socket-type'].decode(),
+                )
+                return
+
+            self.identity = peer_attributes.get(b'identity', None)
+
+            if self.identity:
+                # Peer-specified identities can't start with b'\x00'.
+                if not self.identity[0]:
+                    logger.warning(
+                        "Peer specified an invalid identity (%r). Killing the "
+                        "connection.",
+                        self.identity,
+                    )
+                    return
         else:
             logger.warning("Unsupported mechanism: %s.", mechanism)
             return

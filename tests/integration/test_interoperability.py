@@ -23,7 +23,7 @@ logger = getLogger()
 def pyzmq_context():
     context = zmq.Context()
     yield context
-    context.destroy()
+    context.term()
 
 
 @pytest.yield_fixture
@@ -139,6 +139,35 @@ async def test_tcp_dealer_socket(event_loop, socket_factory, connect_or_bind):
             )
             frames = await asyncio.wait_for(socket.recv_multipart(), 1)
             assert frames == [b'', b'your', b'answer']
+
+
+@pytest.mark.parametrize("link", [
+    'bind',
+    'connect',
+])
+@pytest.mark.asyncio
+async def test_tcp_router_socket(event_loop, socket_factory, connect_or_bind):
+    req_socket = socket_factory.create(zmq.REQ)
+    req_socket.identity = b'abcd'
+    connect_or_bind(req_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        req_socket.send_multipart([b'my', b'question'])
+        frames = req_socket.recv_multipart()
+        assert frames == [b'your', b'answer']
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(azmq.ROUTER)
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            identity = frames.pop(0)
+            assert identity == req_socket.identity
+            assert frames == [b'', b'my', b'question']
+            await asyncio.wait_for(
+                socket.send_multipart([identity, b'', b'your', b'answer']),
+                1,
+            )
 
 
 @pytest.mark.parametrize("link", [

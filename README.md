@@ -33,7 +33,7 @@ implemented already):
   * [x] REQ
   * [x] REP
   * [x] DEALER
-  * [ ] ROUTER
+  * [x] ROUTER
   * [ ] PUB
   * [ ] SUB
   * [ ] PUSH
