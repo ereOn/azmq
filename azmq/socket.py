@@ -148,26 +148,57 @@ class Socket(CompositeClosableAsyncObject):
         # This rotates the list, implementing fair-queuing.
         connections = list(self._fair_incoming_connections)
 
-        read_tasks = [
-            asyncio.ensure_future(connection.read_frames(), loop=self.loop)
+        tasks = [
+            asyncio.ensure_future(connection.wait_can_read(), loop=self.loop)
             for connection in connections
         ]
         done, pending = await asyncio.wait(
-            read_tasks,
+            tasks,
             return_when=asyncio.FIRST_COMPLETED,
         )
 
-        connection, read_task = next(
-            (conn, read_tasks[index])
-            for index, conn in enumerate(connections)
-            if read_tasks[index] in done
+        for task in chain(done, pending):
+            task.cancel()
+
+        connection = next(
+            conn for index, conn in enumerate(connections)
+            if tasks[index] in done
+        )
+
+        return connection, await connection.read_frames()
+
+    async def _fair_send(self, frames):
+        """
+        Send from the first available, non-blocking connection or wait until
+        one meets the condition.
+
+        :params frames: The frames to write.
+        :returns: The connection that was used.
+        """
+        await self._fair_outgoing_connections.wait_not_empty()
+
+        # This rotates the list, implementing fair-queuing.
+        connections = list(self._fair_outgoing_connections)
+
+        tasks = [
+            asyncio.ensure_future(connection.wait_can_write(), loop=self.loop)
+            for connection in connections
+        ]
+        done, pending = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
         )
 
         for task in chain(done, pending):
-            if task is not read_task:
-                task.cancel()
+            task.cancel()
 
-        return connection, await read_task
+        connection = next(
+            conn for index, conn in enumerate(connections)
+            if tasks[index] in done
+        )
+
+        await connection.write_frames(frames)
+        return connection
 
     @cancel_on_closing
     async def _send_req(self, frames):
@@ -254,11 +285,7 @@ class Socket(CompositeClosableAsyncObject):
 
     @cancel_on_closing
     async def _send_dealer(self, frames):
-        await self._fair_outgoing_connections.wait_not_empty()
-        # FIXME: SHALL consider a peer as available only when it has a outgoing
-        # queue that is not full.
-        connection = next(iter(self._fair_outgoing_connections))
-        await connection.write_frames(frames)
+        await self._fair_send(frames)
 
     @cancel_on_closing
     async def _recv_dealer(self):
