@@ -60,6 +60,11 @@ close. Here is an **non-exhaustive** list of some differences in the APIs:
 
 ## Installation
 
+There is not official package available just yet but once there is, follow
+these instructions:
+
+---
+
 You may install it by using `pip`:
 
 > pip install azmq
