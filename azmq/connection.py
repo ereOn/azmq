@@ -62,7 +62,8 @@ class Connection(ClosableAsyncObject):
             loop=self.loop,
         )
         self._can_read = asyncio.Event(loop=self.loop)
-        self._can_read.set()
+        self._cant_read = asyncio.Event(loop=self.loop)
+        self._cant_read.set()
         self._can_write = asyncio.Event(loop=self.loop)
         self._can_write.set()
         self._discard_incoming_messages = False
@@ -101,12 +102,13 @@ class Connection(ClosableAsyncObject):
             self._inbox.get_nowait()
 
         self._can_read.clear()
+        self._cant_read.set()
 
     def clear_outbox(self):
         while not self._outbox.empty():
             self._outbox.get_nowait()
 
-        self._can_write.clear()
+        self._can_write.set()
 
     async def on_close(self, result):
         self.writer.close()
@@ -119,6 +121,7 @@ class Connection(ClosableAsyncObject):
 
         if self._inbox.empty():
             self._can_read.clear()
+            self._cant_read.set()
 
         return result
 
@@ -158,11 +161,23 @@ class Connection(ClosableAsyncObject):
         except self.Retry:
             self.close(self.CLOSE_RETRY)
         except ProtocolError as ex:
-            logger.info("Protocol error (%s). Terminating connection.", ex)
+            logger.debug("Protocol error (%s). Terminating connection.", ex)
+        except asyncio.IncompleteReadError:
+            logger.debug("Remote end was closed. Terminating connection.")
         except Exception:
             logger.exception("Unexpected error. Terminating connection.")
         finally:
             self.close()
+
+            if self.local_socket_type == XPUB:
+                # XPUB sockets must inform the application of the
+                # unsubscription before they go to limbo.
+
+                for topic in self.subscriptions[:]:
+                    await self.unsubscribe(topic)
+
+                # Wait for the inbox to be flushed by the application.
+                await self._cant_read.wait()
 
     async def on_run(self):
         write_first_greeting(self.writer, major_version=3)
@@ -210,8 +225,10 @@ class Connection(ClosableAsyncObject):
             peer_attributes = load_ready_command(command.data)
             logger.debug("Peer attributes: %s", peer_attributes)
 
-            if (self.local_socket_type, peer_attributes[b'socket-type']) not in \
-                    LEGAL_COMBINATIONS:
+            if (
+                self.local_socket_type,
+                peer_attributes[b'socket-type'],
+            ) not in LEGAL_COMBINATIONS:
                 logger.warning(
                     "Incompatible socket types (%s <-> %s). Killing the "
                     "connection.",
@@ -249,22 +266,39 @@ class Connection(ClosableAsyncObject):
             logger.debug(
                 "Read/write cycle interrupted. Connection will die soon.",
             )
+        finally:
+            read_task.cancel()
+            write_task.cancel()
 
-    def subscribe(self, topic):
+            await asyncio.wait([read_task, write_task], loop=self.loop)
+
+    async def subscribe(self, topic):
         self.subscriptions.append(topic)
         logger.debug("Peer subscribed to topic %r.", topic)
 
-    def unsubscribe(self, topic):
+        # XPUB sockets must inform the application of the subscription.
+        if self.local_socket_type == XPUB:
+            await self._inbox.put([b'\x01' + topic])
+            self._can_read.set()
+            self._cant_read.clear()
+
+    async def unsubscribe(self, topic):
         try:
             self.subscriptions.remove(topic)
             logger.debug("Peer unsubscribed from topic %r.", topic)
         except ValueError:
             pass
+        else:
+            # XPUB sockets must inform the application of the unsubscription.
+            if self.local_socket_type == XPUB:
+                await self._inbox.put([b'\x00' + topic])
+                self._can_read.set()
+                self._cant_read.clear()
 
     async def read(self):
         frames = []
 
-        while True:
+        while not self.closing:
             traffic = await read_traffic(self.reader)
 
             if isinstance(traffic, Frame):
@@ -274,9 +308,9 @@ class Connection(ClosableAsyncObject):
                     type_ = traffic.body[0]
 
                     if type_ == 1:
-                        self.subscribe(traffic.body[1:])
+                        await self.subscribe(traffic.body[1:])
                     elif type_ == 0:
-                        self.unsubscribe(traffic.body[1:])
+                        await self.unsubscribe(traffic.body[1:])
                 else:
                     frames.append(traffic)
 
@@ -284,16 +318,17 @@ class Connection(ClosableAsyncObject):
                         if not self._discard_incoming_messages:
                             await self._inbox.put(frames)
                             self._can_read.set()
+                            self._cant_read.clear()
 
                         frames = []
             else:
                 if traffic.name == b'SUBSCRIBE':
-                    self.subscribe(traffic.data)
+                    await self.subscribe(traffic.data)
                 elif traffic.name == b'CANCEL':
-                    self.unsubscribe(traffic.data)
+                    await self.unsubscribe(traffic.data)
 
     async def write(self):
-        while True:
+        while not self.closing:
             frames = await self._outbox.get()
 
             if not self._discard_outgoing_messages:

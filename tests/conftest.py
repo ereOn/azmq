@@ -21,4 +21,4 @@ def event_loop():
     tasks = asyncio.Task.all_tasks()
 
     if tasks:
-        loop.run_until_complete(asyncio.wait(tasks))
+        loop.run_until_complete(asyncio.wait_for(asyncio.wait(tasks), 5))

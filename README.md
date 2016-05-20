@@ -35,7 +35,9 @@ implemented already):
   * [x] DEALER
   * [x] ROUTER
   * [x] PUB
+  * [x] XPUB
   * [ ] SUB
+  * [ ] XSUB
   * [ ] PUSH
   * [ ] PULL
   * [ ] PAIR

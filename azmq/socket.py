@@ -22,7 +22,6 @@ from .constants import (
     ROUTER,
     SUB,
     XPUB,
-    XSUB,
 )
 from .errors import (
     UnsupportedSchemeError,
@@ -80,6 +79,9 @@ class Socket(CompositeClosableAsyncObject):
         elif self.type == PUB:
             self.recv_multipart = self._no_recv
             self.send_multipart = self._send_pub
+        elif self.type == XPUB:
+            self.recv_multipart = self._recv_xpub
+            self.send_multipart = self._send_pub  # This is not a typo.
         else:
             raise RuntimeError("Unsupported socket type: %r" % self.type)
 
@@ -153,10 +155,11 @@ class Socket(CompositeClosableAsyncObject):
                 connection.identity,
             )
 
-        if self.type in {PUB, XPUB}:
+        if self.type == PUB:
+            # This does not prevent subscriptions.
             connection.close_read()
 
-        if self.type in {SUB, XSUB}:
+        if self.type == SUB:
             connection.close_write()
 
         self._connections.append(connection)
@@ -377,3 +380,8 @@ class Socket(CompositeClosableAsyncObject):
                 None,
             ):
                 await conn.write_frames(frames)
+
+    @cancel_on_closing
+    async def _recv_xpub(self):
+        connection, frames = await self._fair_recv()
+        return frames
