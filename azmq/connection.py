@@ -65,6 +65,7 @@ class Connection(ClosableAsyncObject):
         self._can_write = asyncio.Event(loop=self.loop)
         self._can_write.set()
         self._discard_incoming_messages = False
+        self._discard_outgoing_messages = False
 
     @property
     def ready(self):
@@ -84,6 +85,26 @@ class Connection(ClosableAsyncObject):
 
     async def wait_can_write(self):
         await self._can_write.wait()
+
+    def close_read(self):
+        self._discard_incoming_messages = True
+        self.clear_inbox()
+
+    def close_write(self):
+        self._discard_outgoing_messages = True
+        self.clear_outbox()
+
+    def clear_inbox(self):
+        while not self._inbox.empty():
+            self._inbox.get_nowait()
+
+        self._can_read.clear()
+
+    def clear_outbox(self):
+        while not self._outbox.empty():
+            self._outbox.get_nowait()
+
+        self._can_write.clear()
 
     async def on_close(self, result):
         self.writer.close()
@@ -118,10 +139,7 @@ class Connection(ClosableAsyncObject):
         """
         if clear:
             # Flush any received message so far.
-            while not self._inbox.empty():
-                self._inbox.get_nowait()
-
-            self._can_read.clear()
+            self.clear_inbox()
 
         # This allows nesting of discard_incoming_messages() calls.
         previous = self._discard_incoming_messages
@@ -252,5 +270,7 @@ class Connection(ClosableAsyncObject):
     async def write(self):
         while True:
             frames = await self._outbox.get()
-            self._can_write.set()
-            write_frames(self.writer, frames)
+
+            if not self._discard_outgoing_messages:
+                self._can_write.set()
+                write_frames(self.writer, frames)

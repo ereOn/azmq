@@ -16,9 +16,13 @@ from .common import (
 )
 from .constants import (
     DEALER,
+    PUB,
     REP,
     REQ,
     ROUTER,
+    SUB,
+    XPUB,
+    XSUB,
 )
 from .errors import (
     UnsupportedSchemeError,
@@ -73,6 +77,9 @@ class Socket(CompositeClosableAsyncObject):
         elif self.type == ROUTER:
             self.recv_multipart = self._recv_router
             self.send_multipart = self._send_router
+        elif self.type == PUB:
+            self.recv_multipart = self._no_recv
+            self.send_multipart = self._send_pub
         else:
             raise RuntimeError("Unsupported socket type: %r" % self.type)
 
@@ -145,6 +152,12 @@ class Socket(CompositeClosableAsyncObject):
                 "(%r).",
                 connection.identity,
             )
+
+        if self.type in {PUB, XPUB}:
+            connection.close_read()
+
+        if self.type in {SUB, XSUB}:
+            connection.close_write()
 
         self._connections.append(connection)
 
@@ -341,3 +354,19 @@ class Socket(CompositeClosableAsyncObject):
         connection, frames = await self._fair_recv()
         frames.insert(0, connection.identity)
         return frames
+
+    @cancel_on_closing
+    async def _no_recv(self):
+        raise AssertionError(
+            "A %s socket cannot receive." % self.type.decode(),
+        )
+
+    @cancel_on_closing
+    async def _no_send(self):
+        raise AssertionError(
+            "A %s socket cannot send." % self.type.decode(),
+        )
+
+    @cancel_on_closing
+    async def _send_pub(self, frames):
+        pass
