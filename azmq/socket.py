@@ -51,6 +51,7 @@ class Socket(CompositeClosableAsyncObject):
         self.max_outbox_size = 0
         self._outgoing_engines = {}
         self._incoming_engines = {}
+        self._inboxes = AsyncList()
         self._connections = AsyncList()
         self._fair_incoming_connections = self._connections.create_proxy()
         self._fair_outgoing_connections = self._connections.create_proxy()
@@ -168,6 +169,9 @@ class Socket(CompositeClosableAsyncObject):
         logger.debug("Unregistering active connection: %s", connection)
         self._connections.remove(connection)
 
+        if self.type == XPUB and not connection.inbox.empty():
+            self._inboxes.append(connection.inbox)
+
     def generate_identity(self):
         """
         Generate a unique but random identity.
@@ -180,36 +184,100 @@ class Socket(CompositeClosableAsyncObject):
 
         return identity
 
+    async def _fair_get_incomming_connection(self):
+        """
+        Get the first available connection incoming connection in a fair
+        manner.
+
+        :returns: A connection on which it is guaranteed that the inbox is not
+            empty (and thus can be read from without blocking).
+        """
+        connection = None
+
+        while not connection:
+            await self._fair_incoming_connections.wait_not_empty()
+
+            # This rotates the list, implementing fair-queuing.
+            connections = list(self._fair_incoming_connections)
+
+            tasks = [
+                asyncio.ensure_future(
+                    connection.inbox.wait_not_empty(),
+                    loop=self.loop,
+                )
+                for connection in connections
+            ]
+
+            try:
+                done, pending = await asyncio.wait(
+                    tasks,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                for task in tasks:
+                    task.cancel()
+
+            connection = next(
+                (
+                    conn for index, conn in enumerate(connections)
+                    if tasks[index] in done and not tasks[index].cancelled()
+                ),
+                None,
+            )
+
+        return connection
+
     async def _fair_recv(self):
         """
         Receive from all the existing connections, rotating the list of
         connections every time.
 
-        :returns: A pair of connection, frames.
+        :returns: The frames.
         """
-        await self._fair_incoming_connections.wait_not_empty()
+        connection = await self._fair_get_incomming_connection()
+        return connection.inbox.read_nowait()
 
-        # This rotates the list, implementing fair-queuing.
-        connections = list(self._fair_incoming_connections)
+    async def _fair_get_outgoing_connection(self):
+        """
+        Get the first available, non-blocking connection or wait until one
+        meets the condition.
 
-        tasks = [
-            asyncio.ensure_future(connection.wait_can_read(), loop=self.loop)
-            for connection in connections
-        ]
-        done, pending = await asyncio.wait(
-            tasks,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        :returns: The connection that is ready to write.
+        """
+        connection = None
 
-        for task in chain(done, pending):
-            task.cancel()
+        while not connection:
+            await self._fair_outgoing_connections.wait_not_empty()
 
-        connection = next(
-            conn for index, conn in enumerate(connections)
-            if tasks[index] in done
-        )
+            # This rotates the list, implementing fair-queuing.
+            connections = list(self._fair_outgoing_connections)
 
-        return connection, await connection.read_frames()
+            tasks = [
+                asyncio.ensure_future(
+                    connection.outbox.wait_not_full(),
+                    loop=self.loop,
+                )
+                for connection in connections
+            ]
+
+            try:
+                done, pending = await asyncio.wait(
+                    tasks,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            finally:
+                for task in tasks:
+                    task.cancel()
+
+            connection = next(
+                (
+                    conn for index, conn in enumerate(connections)
+                    if tasks[index] in done and not conn.outbox.full()
+                ),
+                None,
+            )
+
+        return connection
 
     async def _fair_send(self, frames):
         """
@@ -219,29 +287,8 @@ class Socket(CompositeClosableAsyncObject):
         :params frames: The frames to write.
         :returns: The connection that was used.
         """
-        await self._fair_outgoing_connections.wait_not_empty()
-
-        # This rotates the list, implementing fair-queuing.
-        connections = list(self._fair_outgoing_connections)
-
-        tasks = [
-            asyncio.ensure_future(connection.wait_can_write(), loop=self.loop)
-            for connection in connections
-        ]
-        done, pending = await asyncio.wait(
-            tasks,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        for task in chain(done, pending):
-            task.cancel()
-
-        connection = next(
-            conn for index, conn in enumerate(connections)
-            if tasks[index] in done
-        )
-
-        await connection.write_frames(frames)
+        connection = await self._fair_get_outgoing_connection()
+        connection.outbox.write_nowait(frames)
         return connection
 
     @cancel_on_closing
@@ -255,7 +302,7 @@ class Socket(CompositeClosableAsyncObject):
         await self._fair_outgoing_connections.wait_not_empty()
         connection = next(iter(self._fair_outgoing_connections))
 
-        await connection.write_frames([b''] + frames)
+        await connection.outbox.write([b''] + frames)
         self._current_connection.set_result(connection)
 
     @cancel_on_closing
@@ -275,7 +322,7 @@ class Socket(CompositeClosableAsyncObject):
                 if conn is not connection:
                     stack.enter_context(conn.discard_incoming_messages())
 
-            frames = await connection.read_frames()
+            frames = await connection.inbox.read()
 
             # We need to get rid of the empty delimiter.
             if frames[0] != b'':
@@ -310,7 +357,7 @@ class Socket(CompositeClosableAsyncObject):
         # receive.
         self._current_connection = asyncio.Future(loop=self.loop)
 
-        await connection.write_frames(envelope + frames)
+        await connection.outbox.write(envelope + frames)
 
     @cancel_on_closing
     async def _recv_rep(self):
@@ -320,7 +367,8 @@ class Socket(CompositeClosableAsyncObject):
                 "from it first",
             )
 
-        connection, frames = await self._fair_recv()
+        connection = await self._fair_get_incomming_connection()
+        frames = connection.inbox.read_nowait()
         delimiter_index = frames.index(b'')
         envelope = frames[:delimiter_index + 1]
         message = frames[delimiter_index + 1:]
@@ -333,8 +381,7 @@ class Socket(CompositeClosableAsyncObject):
 
     @cancel_on_closing
     async def _recv_dealer(self):
-        connection, frames = await self._fair_recv()
-        return frames
+        return await self._fair_recv()
 
     @cancel_on_closing
     async def _send_router(self, frames):
@@ -343,18 +390,19 @@ class Socket(CompositeClosableAsyncObject):
         try:
             connection = next(
                 conn for conn in self._connections
-                if conn.identity == identity and conn.can_write()
+                if conn.identity == identity and not conn.outbox.full()
             )
         except StopIteration:
             # We drop the messages as their is no suitable connection to write
             # it to.
             pass
         else:
-            await connection.write_frames(frames)
+            connection.outbox.write_nowait(frames)
 
     @cancel_on_closing
     async def _recv_router(self):
-        connection, frames = await self._fair_recv()
+        connection = await self._fair_get_incomming_connection()
+        frames = connection.inbox.read_nowait()
         frames.insert(0, connection.identity)
         return frames
 
@@ -375,13 +423,12 @@ class Socket(CompositeClosableAsyncObject):
         topic = frames[0]
 
         for conn in self._connections:
-            if conn.can_write() and next(
+            if not conn.outbox.full() and next(
                 (topic.startswith(subs) for subs in conn.subscriptions),
                 None,
             ):
-                await conn.write_frames(frames)
+                conn.outbox.write_nowait(frames)
 
     @cancel_on_closing
     async def _recv_xpub(self):
-        connection, frames = await self._fair_recv()
-        return frames
+        return await self._fair_recv()

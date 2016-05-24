@@ -80,13 +80,16 @@ class ClosableAsyncObject(AsyncObject):
         """
         wait_task = asyncio.ensure_future(self.wait_closing(), loop=self.loop)
         coro_task = asyncio.ensure_future(coro, loop=self.loop)
-        done, pending = await asyncio.wait(
-            [wait_task, coro_task],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
 
-        for task in pending:
-            task.cancel()
+        try:
+            done, pending = await asyncio.wait(
+                [wait_task, coro_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+        finally:
+            wait_task.cancel()
+            coro_task.cancel()
 
         # It could be that the previous instructions cancelled coro_task if it
         # wasn't done yet.
@@ -321,3 +324,162 @@ class AsyncPeriodicTimer(AsyncTaskObject):
         in `self.period` seconds.
         """
         self.reset_event.set()
+
+
+class AsyncInbox(ClosableAsyncObject):
+    def on_open(self, maxsize=0):
+        self._maxsize = maxsize
+        self._queue = asyncio.Queue(maxsize=maxsize, loop=self.loop)
+        self._can_read = asyncio.Event(loop=self.loop)
+
+    @cancel_on_closing
+    async def read(self):
+        """
+        Read from the inbox in a blocking manner.
+
+        :returns: An item from the inbox.
+        """
+        result = await self._queue.get()
+
+        if self._queue.empty():
+            self._can_read.clear()
+
+        return result
+
+    def read_nowait(self):
+        """
+        Read from the inbox in a non-blocking manner.
+
+        If the inbox is empty, an exception is thrown. You should always check
+        for emptiness with `empty` or `wait_not_empty` before calling this
+        method.
+
+        :returns: An item from the inbox.
+        """
+        result = self._queue.get_nowait()
+
+        if self._queue.empty():
+            self._can_read.clear()
+
+        return result
+
+    @cancel_on_closing
+    async def wait_not_empty(self):
+        """
+        Blocks until the queue is not empty.
+        """
+        await self._can_read.wait()
+
+    def empty(self):
+        return self._queue.empty()
+
+    @cancel_on_closing
+    async def write(self, item):
+        """
+        Write an item in the queue.
+
+        :param item: The item.
+        """
+        await self._queue.put(item)
+        self._can_read.set()
+
+    def clear(self):
+        """
+        Clear the inbox.
+        """
+        while not self._queue.empty():
+            self._queue.get_nowait()
+
+        self._can_read.clear()
+
+    def clone(self):
+        """
+        Clone the inbox.
+
+        :returns: A new inbox with the same item queue.
+
+        The cloned inbox is not closed, no matter the initial state of the
+        original instance.
+        """
+        result = AsyncInbox(maxsize=self._maxsize, loop=self.loop)
+        result._queue = self._queue
+        result._can_read = self._can_read
+        return result
+
+
+class AsyncOutbox(ClosableAsyncObject):
+    def on_open(self, maxsize=0):
+        self._maxsize = maxsize
+        self._queue = asyncio.Queue(maxsize=maxsize, loop=self.loop)
+        self._can_write = asyncio.Event(loop=self.loop)
+        self._can_write.set()
+
+    @cancel_on_closing
+    async def write(self, item):
+        """
+        Write in the outbox in a blocking manner.
+
+        :param item: An item.
+        """
+        await self._queue.put(item)
+
+        if self._queue.full():
+            self._can_write.clear()
+
+    def write_nowait(self, item):
+        """
+        Write in the inbox in a non-blocking manner.
+
+        If the inbox is full, an exception is thrown. You should always check
+        for fullness with `full` or `wait_not_full` before calling this method.
+
+        :param item: An item.
+        """
+        self._queue.put_nowait(item)
+
+        if self._queue.full():
+            self._can_write.clear()
+
+    @cancel_on_closing
+    async def wait_not_full(self):
+        """
+        Blocks until the queue is not full.
+        """
+        await self._can_write.wait()
+
+    def full(self):
+        return self._queue.full()
+
+    @cancel_on_closing
+    async def read(self):
+        """
+        Read an item from the queue.
+
+        :returns: The item.
+        """
+        result = await self._queue.get()
+        self._can_write.set()
+        return result
+
+    def clear(self):
+        """
+        Clear the outbox.
+        """
+        while not self._queue.empty():
+            self._queue.get_nowait()
+
+        self._can_write.set()
+
+    def clone(self):
+        """
+        Clone the outbox.
+
+        :returns: A new outbox with the same item queue.
+
+        The cloned outbox is not closed, no matter the initial state of the
+        original instance.
+        """
+        result = AsyncOutbox(maxsize=self._maxsize, loop=self.loop)
+        result._queue = self._queue
+        result._can_write = self._can_write
+        return result

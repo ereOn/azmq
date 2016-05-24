@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from .common import (
     ClosableAsyncObject,
     cancel_on_closing,
+    AsyncInbox,
+    AsyncOutbox,
 )
 from .constants import (
     PUB,
@@ -53,19 +55,14 @@ class Connection(ClosableAsyncObject):
         self.identity = None
         self._ready_future = asyncio.Future(loop=self.loop)
         self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
-        self._inbox = asyncio.Queue(
+        self.inbox = AsyncInbox(
             maxsize=attributes['max_inbox_size'],
             loop=self.loop,
         )
-        self._outbox = asyncio.Queue(
+        self.outbox = AsyncOutbox(
             maxsize=attributes['max_outbox_size'],
             loop=self.loop,
         )
-        self._can_read = asyncio.Event(loop=self.loop)
-        self._cant_read = asyncio.Event(loop=self.loop)
-        self._cant_read.set()
-        self._can_write = asyncio.Event(loop=self.loop)
-        self._can_write.set()
         self._discard_incoming_messages = False
         self._discard_outgoing_messages = False
         self.subscriptions = []
@@ -74,65 +71,26 @@ class Connection(ClosableAsyncObject):
     def ready(self):
         return self._ready_future.done()
 
+    @cancel_on_closing
     async def wait_ready(self):
         await self._ready_future
 
-    def can_read(self):
-        return self._can_read.is_set()
-
-    def can_write(self):
-        return self._can_write.is_set()
-
-    async def wait_can_read(self):
-        await self._can_read.wait()
-
-    async def wait_can_write(self):
-        await self._can_write.wait()
-
     def close_read(self):
         self._discard_incoming_messages = True
-        self.clear_inbox()
+        self.inbox.clear()
 
     def close_write(self):
         self._discard_outgoing_messages = True
         self.clear_outbox()
 
-    def clear_inbox(self):
-        while not self._inbox.empty():
-            self._inbox.get_nowait()
-
-        self._can_read.clear()
-        self._cant_read.set()
-
-    def clear_outbox(self):
-        while not self._outbox.empty():
-            self._outbox.get_nowait()
-
-        self._can_write.set()
-
     async def on_close(self, result):
         self.writer.close()
+        self.inbox.close()
+        self.outbox.close()
         await self.run_task
+        await self.inbox.wait_closed()
+        await self.outbox.wait_closed()
         return result
-
-    @cancel_on_closing
-    async def read_frames(self):
-        result = await self._inbox.get()
-
-        if self._inbox.empty():
-            self._can_read.clear()
-            self._cant_read.set()
-
-        return result
-
-    @cancel_on_closing
-    async def write_frames(self, frames):
-        # Writing on a closing connection silently discards the messages.
-        if not self.closing:
-            await self._outbox.put(frames)
-
-            if self._outbox.full():
-                self._can_write.clear()
 
     @contextmanager
     def discard_incoming_messages(self, clear=True):
@@ -144,7 +102,7 @@ class Connection(ClosableAsyncObject):
         """
         if clear:
             # Flush any received message so far.
-            self.clear_inbox()
+            self.inbox.clear()
 
         # This allows nesting of discard_incoming_messages() calls.
         previous = self._discard_incoming_messages
@@ -168,16 +126,6 @@ class Connection(ClosableAsyncObject):
             logger.exception("Unexpected error. Terminating connection.")
         finally:
             self.close()
-
-            if self.local_socket_type == XPUB:
-                # XPUB sockets must inform the application of the
-                # unsubscription before they go to limbo.
-
-                for topic in self.subscriptions[:]:
-                    await self.unsubscribe(topic)
-
-                # Wait for the inbox to be flushed by the application.
-                await self._cant_read.wait()
 
     async def on_run(self):
         write_first_greeting(self.writer, major_version=3)
@@ -278,9 +226,7 @@ class Connection(ClosableAsyncObject):
 
         # XPUB sockets must inform the application of the subscription.
         if self.local_socket_type == XPUB:
-            await self._inbox.put([b'\x01' + topic])
-            self._can_read.set()
-            self._cant_read.clear()
+            await self.inbox.write([b'\x01' + topic])
 
     async def unsubscribe(self, topic):
         try:
@@ -291,9 +237,7 @@ class Connection(ClosableAsyncObject):
         else:
             # XPUB sockets must inform the application of the unsubscription.
             if self.local_socket_type == XPUB:
-                await self._inbox.put([b'\x00' + topic])
-                self._can_read.set()
-                self._cant_read.clear()
+                await self.inbox.write([b'\x00' + topic])
 
     async def read(self):
         frames = []
@@ -316,9 +260,7 @@ class Connection(ClosableAsyncObject):
 
                     if traffic.last:
                         if not self._discard_incoming_messages:
-                            await self._inbox.put(frames)
-                            self._can_read.set()
-                            self._cant_read.clear()
+                            await self.inbox.write(frames)
 
                         frames = []
             else:
@@ -328,9 +270,10 @@ class Connection(ClosableAsyncObject):
                     await self.unsubscribe(traffic.data)
 
     async def write(self):
+        outbox = self.outbox
+
         while not self.closing:
-            frames = await self._outbox.get()
+            frames = await outbox.read()
 
             if not self._discard_outgoing_messages:
-                self._can_write.set()
                 write_frames(self.writer, frames)
