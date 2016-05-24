@@ -85,9 +85,12 @@ class Connection(ClosableAsyncObject):
 
     async def on_close(self, result):
         self.writer.close()
+        await self.run_task
+
+        await self.unsubscribe_all()
+
         self.inbox.close()
         self.outbox.close()
-        await self.run_task
         await self.inbox.wait_closed()
         await self.outbox.wait_closed()
         return result
@@ -238,6 +241,11 @@ class Connection(ClosableAsyncObject):
             # XPUB sockets must inform the application of the unsubscription.
             if self.local_socket_type == XPUB:
                 await self.inbox.write([b'\x00' + topic])
+
+    async def unsubscribe_all(self):
+        await asyncio.gather(
+            *[self.unsubscribe(topic) for topic in self.subscriptions[:]]
+        )
 
     async def read(self):
         frames = []
