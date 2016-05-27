@@ -241,6 +241,32 @@ async def test_tcp_xpub_socket(event_loop, socket_factory, connect_or_bind):
     'connect',
 ])
 @pytest.mark.asyncio
+async def test_tcp_sub_socket(event_loop, socket_factory, connect_or_bind):
+    xpub_socket = socket_factory.create(zmq.XPUB)
+    connect_or_bind(xpub_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        # Wait one second for the subscription to arrive.
+        assert xpub_socket.poll(5000) == zmq.POLLIN
+        topic = xpub_socket.recv_multipart()
+        assert topic == [b'\x01a']
+        xpub_socket.send_multipart([b'a', b'message'])
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(azmq.SUB)
+            await socket.subscribe(b'a')
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            assert frames == [b'a', b'message']
+
+
+@pytest.mark.parametrize("link", [
+    'bind',
+    'connect',
+])
+@pytest.mark.asyncio
 async def test_tcp_big_messages(event_loop, socket_factory, connect_or_bind):
     rep_socket = socket_factory.create(zmq.REP)
     connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)

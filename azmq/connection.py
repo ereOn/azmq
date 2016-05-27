@@ -81,7 +81,7 @@ class Connection(ClosableAsyncObject):
 
     def close_write(self):
         self._discard_outgoing_messages = True
-        self.clear_outbox()
+        self.outbox.clear()
 
     async def on_close(self, result):
         self.writer.close()
@@ -222,6 +222,16 @@ class Connection(ClosableAsyncObject):
             write_task.cancel()
 
             await asyncio.wait([read_task, write_task], loop=self.loop)
+
+    @cancel_on_closing
+    async def local_subscribe(self, topic):
+        logger.debug("Subscribed to topic %r.", topic)
+        await self.outbox.write([b'\x01' + topic])
+
+    @cancel_on_closing
+    async def local_unsubscribe(self, topic):
+        logger.debug("Unsubscribed from topic %r.", topic)
+        await self.outbox.write([b'\x00' + topic])
 
     async def subscribe(self, topic):
         self.subscriptions.append(topic)

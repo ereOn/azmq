@@ -22,6 +22,7 @@ from .constants import (
     ROUTER,
     SUB,
     XPUB,
+    XSUB,
 )
 from .errors import (
     UnsupportedSchemeError,
@@ -55,6 +56,7 @@ class Socket(CompositeClosableAsyncObject):
         self._fair_incoming_connections = self._connections.create_proxy()
         self._fair_outgoing_connections = self._connections.create_proxy()
         self._base_identity = random.getrandbits(32)
+        self._subscriptions = []
 
         if self.type == REQ:
             # This future holds the last connection we sent a request to (or
@@ -82,6 +84,12 @@ class Socket(CompositeClosableAsyncObject):
         elif self.type == XPUB:
             self.recv_multipart = self._recv_xpub
             self.send_multipart = self._send_pub  # This is not a typo.
+        elif self.type == SUB:
+            self.recv_multipart = self._recv_sub
+            self.send_multipart = self._no_send
+        elif self.type == XSUB:
+            self.recv_multipart = self._recv_sub  # This is not a typo.
+            self.send_multipart = self._send_xsub
         else:
             raise RuntimeError("Unsupported socket type: %r" % self.type)
 
@@ -159,8 +167,12 @@ class Socket(CompositeClosableAsyncObject):
             # This does not prevent subscriptions.
             connection.close_read()
 
-        if self.type == SUB:
-            connection.close_write()
+        if self.type in {SUB, XSUB}:
+            for topic in self._subscriptions:
+                asyncio.ensure_future(
+                    connection.local_subscribe(topic),
+                    loop=self.loop,
+                )
 
         self._connections.append(
             (connection, connection.inbox, connection.outbox),
@@ -454,3 +466,70 @@ class Socket(CompositeClosableAsyncObject):
     @cancel_on_closing
     async def _recv_xpub(self):
         return await self._fair_recv()
+
+    @cancel_on_closing
+    async def _recv_sub(self):
+        return await self._fair_recv()
+
+    @cancel_on_closing
+    async def subscribe(self, topic):
+        """
+        Subscribe the socket to the specified topic.
+
+        :param topic: The topic to subscribe to.
+        """
+        if self.type not in {SUB, XSUB}:
+            raise AssertionError(
+                "A %s socket cannot subscribe." % self.type.decode(),
+            )
+
+        # Do this **BEFORE** awaiting so that new connections created during
+        # the execution below honor the setting.
+        self._subscriptions.append(topic)
+
+        if self._connections:
+            tasks = [
+                asyncio.ensure_future(
+                    connection.local_subscribe(topic),
+                    loop=self.loop,
+                )
+                for connection, _, _ in self._connections
+            ]
+
+            try:
+                await asyncio.wait(tasks, loop=self.loop)
+            finally:
+                for task in tasks:
+                    task.cancel()
+
+
+    @cancel_on_closing
+    async def unsubscribe(self, topic):
+        """
+        Unsubscribe the socket from the specified topic.
+
+        :param topic: The topic to unsubscribe from.
+        """
+        if self.type not in {SUB, XSUB}:
+            raise AssertionError(
+                "A %s socket cannot unsubscribe." % self.type.decode(),
+            )
+
+        # Do this **BEFORE** awaiting so that new connections created during
+        # the execution below honor the setting.
+        self._subscriptions.append(topic)
+
+        if self._connections:
+            tasks = [
+                asyncio.ensure_future(
+                    connection.local_unsubscribe(topic),
+                    loop=self.loop,
+                )
+                for connection in self._connections
+            ]
+
+            try:
+                await asyncio.wait(tasks, loop=self.loop)
+            finally:
+                for task in tasks:
+                    task.cancel()

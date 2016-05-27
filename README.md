@@ -36,7 +36,7 @@ implemented already):
   * [x] ROUTER
   * [x] PUB
   * [x] XPUB
-  * [ ] SUB
+  * [x] SUB
   * [ ] XSUB
   * [ ] PUSH
   * [ ] PULL
