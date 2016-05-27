@@ -7,7 +7,6 @@ import random
 import struct
 
 from urllib.parse import urlsplit
-from itertools import chain
 from contextlib import ExitStack
 
 from .common import (
@@ -501,7 +500,6 @@ class Socket(CompositeClosableAsyncObject):
             finally:
                 for task in tasks:
                     task.cancel()
-
 
     @cancel_on_closing
     async def unsubscribe(self, topic):
