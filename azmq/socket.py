@@ -56,13 +56,6 @@ class Peer(object):
         self.inbox = inbox
         self.outbox = outbox
 
-    @classmethod
-    def engine_check(cls, engine):
-        return partial(cls.has_engine, engine=engine)
-
-    def has_engine(self, engine):
-        return self.engine is engine
-
 
 class Socket(CompositeClosableAsyncObject):
     """
@@ -79,6 +72,7 @@ class Socket(CompositeClosableAsyncObject):
         self.max_inbox_size = 0
         self.max_outbox_size = 0
         self._outgoing_engines = {}
+        self._outgoing_peers = {}
         self._incoming_engines = {}
         self._peers = AsyncList()
         self._in_peers = self._peers.create_proxy()
@@ -163,19 +157,22 @@ class Socket(CompositeClosableAsyncObject):
             raise UnsupportedSchemeError(scheme=url.scheme)
 
         self._outgoing_engines[url] = engine
-        self._peers.append(Peer(
+        peer = Peer(
             engine=engine,
             connection=None,
             inbox=self.create_inbox(),
             outbox=self.create_outbox(),
-        ))
+        )
+        self._outgoing_peers[engine] = peer
+        self._peers.append(peer)
         self.register_child(engine)
 
     def disconnect(self, endpoint):
         url = urlsplit(endpoint)
 
         engine = self._outgoing_engines.pop(url)
-        self._peers.pop_first_match(Peer.engine_check(engine))
+        peer = self._outgoing_peers.pop(engine)
+        self._peers.remove(peer)
         engine.close()
 
     def bind(self, endpoint):
@@ -208,7 +205,7 @@ class Socket(CompositeClosableAsyncObject):
     def register_connection(self, connection, engine):
         logger.debug("Registering new active connection: %s", connection)
 
-        peer = next((p for p in self._peers if p.engine is engine), None)
+        peer = self._outgoing_peers.get(engine)
 
         if peer:
             peer.connection = connection
@@ -248,12 +245,19 @@ class Socket(CompositeClosableAsyncObject):
                 "XPUB socket's inbox not empty: adding it back to the pool of "
                 "inboxes.",
             )
-            peer = next(p for p in self._peers if p.engine is engine)
+            peer = next(p for p in self._peers if p.connection is connection)
             peer.engine = None
             peer.connection = None
             peer.outbox = None
         else:
-            self._peers.pop_first_match(Peer.engine_check(engine))
+            peer = self._outgoing_peers.get(engine)
+
+            if peer:
+                peer.connection = None
+            else:
+                self._peers.pop_first_match(
+                    lambda p: p.connection is connection,
+                )
 
     def generate_identity(self):
         """
