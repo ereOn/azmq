@@ -249,6 +249,7 @@ async def test_tcp_xpub_socket(event_loop, socket_factory, connect_or_bind):
 
 
 @pytest.mark.parametrize("link", [
+    'bind',
     'connect',
 ])
 @pytest.mark.asyncio
@@ -262,9 +263,11 @@ async def test_tcp_sub_socket(event_loop, socket_factory, connect_or_bind):
         topic = xpub_socket.recv_multipart()
         assert topic == [b'\x01a']
         xpub_socket.send_multipart([b'a', b'message'])
-        assert xpub_socket.poll(1000) == zmq.POLLIN
-        topic = xpub_socket.recv_multipart()
-        assert topic == [b'\x00a']
+
+        if connect_or_bind == 'connect':
+            assert xpub_socket.poll(1000) == zmq.POLLIN
+            topic = xpub_socket.recv_multipart()
+            assert topic == [b'\x00a']
 
     with run_in_background(run):
         async with azmq.Context(loop=event_loop) as context:
@@ -279,6 +282,7 @@ async def test_tcp_sub_socket(event_loop, socket_factory, connect_or_bind):
 
 
 @pytest.mark.parametrize("link", [
+    'bind',
     'connect',
 ])
 @pytest.mark.asyncio
@@ -292,9 +296,11 @@ async def test_tcp_xsub_socket(event_loop, socket_factory, connect_or_bind):
         topic = xpub_socket.recv_multipart()
         assert topic == [b'\x01a']
         xpub_socket.send_multipart([b'a', b'message'])
-        assert xpub_socket.poll(1000) == zmq.POLLIN
-        topic = xpub_socket.recv_multipart()
-        assert topic == [b'\x00a']
+
+        if connect_or_bind == 'connect':
+            assert xpub_socket.poll(1000) == zmq.POLLIN
+            topic = xpub_socket.recv_multipart()
+            assert topic == [b'\x00a']
 
     with run_in_background(run):
         async with azmq.Context(loop=event_loop) as context:
