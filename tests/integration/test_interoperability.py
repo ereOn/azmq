@@ -11,6 +11,7 @@ from contextlib import (
     ExitStack,
     contextmanager,
 )
+from concurrent.futures import Future
 from logging import getLogger
 from threading import (
     Event,
@@ -57,20 +58,31 @@ def connect_or_bind(link):
 @contextmanager
 def run_in_background(target, *args, **kwargs):
     event = Event()
+    future = Future()
 
     def extended_target(*args, **kwargs):
         try:
-            return target(*args, **kwargs)
+            future.set_result(target(*args, **kwargs))
+        except Exception as ex:
+            future.set_exception(ex)
         finally:
             event.set()
 
     thread = Thread(target=extended_target, args=args, kwargs=kwargs)
     thread.start()
+    exception = None
 
     try:
         yield event
+    except Exception as ex:
+        exception = ex
     finally:
-        thread.join(5)
+        if not exception:
+            future.result(timeout=5)
+        else:
+            raise
+
+        thread.join(timeout=5)
         assert not thread.isAlive()
 
 
@@ -237,7 +249,6 @@ async def test_tcp_xpub_socket(event_loop, socket_factory, connect_or_bind):
 
 
 @pytest.mark.parametrize("link", [
-    'bind',
     'connect',
 ])
 @pytest.mark.asyncio
@@ -247,15 +258,48 @@ async def test_tcp_sub_socket(event_loop, socket_factory, connect_or_bind):
 
     def run():
         # Wait one second for the subscription to arrive.
-        assert xpub_socket.poll(5000) == zmq.POLLIN
+        assert xpub_socket.poll(1000) == zmq.POLLIN
         topic = xpub_socket.recv_multipart()
         assert topic == [b'\x01a']
         xpub_socket.send_multipart([b'a', b'message'])
+        assert xpub_socket.poll(1000) == zmq.POLLIN
+        topic = xpub_socket.recv_multipart()
+        assert topic == [b'\x00a']
 
     with run_in_background(run):
         async with azmq.Context(loop=event_loop) as context:
             socket = context.socket(azmq.SUB)
             await socket.subscribe(b'a')
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            assert frames == [b'a', b'message']
+
+        logger.info("Context closed for good")
+
+
+@pytest.mark.parametrize("link", [
+    'connect',
+])
+@pytest.mark.asyncio
+async def test_tcp_xsub_socket(event_loop, socket_factory, connect_or_bind):
+    xpub_socket = socket_factory.create(zmq.XPUB)
+    connect_or_bind(xpub_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        # Wait one second for the subscription to arrive.
+        assert xpub_socket.poll(1000) == zmq.POLLIN
+        topic = xpub_socket.recv_multipart()
+        assert topic == [b'\x01a']
+        xpub_socket.send_multipart([b'a', b'message'])
+        assert xpub_socket.poll(1000) == zmq.POLLIN
+        topic = xpub_socket.recv_multipart()
+        assert topic == [b'\x00a']
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(azmq.XSUB)
+            await socket.send_multipart([b'\x01a'])
             connect_or_bind(socket, 'tcp://127.0.0.1:3333')
 
             frames = await asyncio.wait_for(socket.recv_multipart(), 1)

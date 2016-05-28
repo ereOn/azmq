@@ -471,6 +471,18 @@ class Socket(CompositeClosableAsyncObject):
         return await self._fair_recv()
 
     @cancel_on_closing
+    async def _send_xsub(self, frames):
+        first_frame = frames[0]
+
+        if first_frame:
+            type_ = first_frame[0]
+
+            if type_ == 0:
+                await self.unsubscribe(first_frame[1:])
+            elif type_ == 1:
+                await self.subscribe(first_frame[1:])
+
+    @cancel_on_closing
     async def subscribe(self, topic):
         """
         Subscribe the socket to the specified topic.

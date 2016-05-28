@@ -37,7 +37,7 @@ implemented already):
   * [x] PUB
   * [x] XPUB
   * [x] SUB
-  * [ ] XSUB
+  * [x] XSUB
   * [ ] PUSH
   * [ ] PULL
   * [ ] PAIR
