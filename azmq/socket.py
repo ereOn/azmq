@@ -393,10 +393,7 @@ class Socket(CompositeClosableAsyncObject):
                 "from it first",
             )
 
-        await self._out_peers.wait_not_empty()
-        peer = next(iter(self._out_peers))
-
-        await peer.outbox.write([b''] + frames)
+        peer = await self._fair_send([b''] + frames)
         self._current_peer.set_result(peer)
 
     @cancel_on_closing
