@@ -8,10 +8,13 @@ import struct
 
 from urllib.parse import urlsplit
 from contextlib import ExitStack
+from functools import partial
 
 from .common import (
     CompositeClosableAsyncObject,
     cancel_on_closing,
+    AsyncInbox,
+    AsyncOutbox,
 )
 from .constants import (
     DEALER,
@@ -35,6 +38,32 @@ from .log import logger
 from .containers import AsyncList
 
 
+class Peer(object):
+    """
+    Represents a peer connection, either establish or in the process of being
+    established.
+    """
+    __slots__ = [
+        'engine',
+        'connection',
+        'inbox',
+        'outbox',
+    ]
+
+    def __init__(self, engine, connection, inbox, outbox):
+        self.engine = engine
+        self.connection = connection
+        self.inbox = inbox
+        self.outbox = outbox
+
+    @classmethod
+    def engine_check(cls, engine):
+        return partial(cls.has_engine, engine=engine)
+
+    def has_engine(self, engine):
+        return self.engine is engine
+
+
 class Socket(CompositeClosableAsyncObject):
     """
     A ZMQ socket.
@@ -51,9 +80,9 @@ class Socket(CompositeClosableAsyncObject):
         self.max_outbox_size = 0
         self._outgoing_engines = {}
         self._incoming_engines = {}
-        self._connections = AsyncList()
-        self._fair_incoming_connections = self._connections.create_proxy()
-        self._fair_outgoing_connections = self._connections.create_proxy()
+        self._peers = AsyncList()
+        self._in_peers = self._peers.create_proxy()
+        self._out_peers = self._peers.create_proxy()
         self._base_identity = random.getrandbits(32)
         self._subscriptions = []
 
@@ -61,14 +90,14 @@ class Socket(CompositeClosableAsyncObject):
             # This future holds the last connection we sent a request to (or
             # none, if no request was sent yet). This allows to start receiving
             # before we send.
-            self._current_connection = asyncio.Future(loop=self.loop)
+            self._current_peer = asyncio.Future(loop=self.loop)
             self.recv_multipart = self._recv_req
             self.send_multipart = self._send_req
         elif self.type == REP:
             # This future holds the last connection we received a request from
             # (or none, if no request was received yet). This allows to start
             # receiving before we send.
-            self._current_connection = asyncio.Future(loop=self.loop)
+            self._current_peer = asyncio.Future(loop=self.loop)
             self.recv_multipart = self._recv_rep
             self.send_multipart = self._send_rep
         elif self.type == DEALER:
@@ -96,14 +125,24 @@ class Socket(CompositeClosableAsyncObject):
     def attributes(self):
         attributes = {
             'socket_type': self.type,
-            'max_inbox_size': self.max_inbox_size,
-            'max_outbox_size': self.max_outbox_size,
         }
 
         if self.identity:
             attributes['identity'] = self.identity
 
         return attributes
+
+    def create_inbox(self):
+        return AsyncInbox(
+            maxsize=self.max_inbox_size,
+            loop=self.loop,
+        )
+
+    def create_outbox(self):
+        return AsyncOutbox(
+            maxsize=self.max_outbox_size,
+            loop=self.loop,
+        )
 
     def connect(self, endpoint):
         url = urlsplit(endpoint)
@@ -114,18 +153,29 @@ class Socket(CompositeClosableAsyncObject):
                 port=url.port,
                 attributes=self.attributes,
             )
-            engine.on_connection_ready.connect(self.register_connection)
-            engine.on_connection_lost.connect(self.unregister_connection)
+            engine.on_connection_ready.connect(
+                partial(self.register_connection, engine=engine),
+            )
+            engine.on_connection_lost.connect(
+                partial(self.unregister_connection, engine=engine),
+            )
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
 
         self._outgoing_engines[url] = engine
+        self._peers.append(Peer(
+            engine=engine,
+            connection=None,
+            inbox=self.create_inbox(),
+            outbox=self.create_outbox(),
+        ))
         self.register_child(engine)
 
     def disconnect(self, endpoint):
         url = urlsplit(endpoint)
 
         engine = self._outgoing_engines.pop(url)
+        self._peers.pop_first_match(Peer.engine_check(engine))
         engine.close()
 
     def bind(self, endpoint):
@@ -137,8 +187,12 @@ class Socket(CompositeClosableAsyncObject):
                 port=url.port,
                 attributes=self.attributes,
             )
-            engine.on_connection_ready.connect(self.register_connection)
-            engine.on_connection_lost.connect(self.unregister_connection)
+            engine.on_connection_ready.connect(
+                partial(self.register_connection, engine=engine),
+            )
+            engine.on_connection_lost.connect(
+                partial(self.unregister_connection, engine=engine),
+            )
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
 
@@ -151,8 +205,25 @@ class Socket(CompositeClosableAsyncObject):
         engine = self._incoming_engines.pop(url)
         engine.close()
 
-    def register_connection(self, connection):
+    def register_connection(self, connection, engine):
         logger.debug("Registering new active connection: %s", connection)
+
+        peer = next((p for p in self._peers if p.engine is engine), None)
+
+        if peer:
+            peer.connection = connection
+            logger.debug("Updating connected peer with it's new connection.")
+        else:
+            peer = Peer(
+                engine=engine,
+                connection=connection,
+                inbox=self.create_inbox(),
+                outbox=self.create_outbox(),
+            )
+            self._peers.append(peer)
+            logger.debug("Creating a new peer with the new connection.")
+
+        connection.set_queues(inbox=peer.inbox, outbox=peer.outbox)
 
         if self.type == ROUTER and not connection.identity:
             connection.identity = self.generate_identity()
@@ -162,10 +233,6 @@ class Socket(CompositeClosableAsyncObject):
                 connection.identity,
             )
 
-        if self.type == PUB:
-            # This does not prevent subscriptions.
-            connection.close_read()
-
         if self.type in {SUB, XSUB}:
             for topic in self._subscriptions:
                 asyncio.ensure_future(
@@ -173,22 +240,20 @@ class Socket(CompositeClosableAsyncObject):
                     loop=self.loop,
                 )
 
-        self._connections.append(
-            (connection, connection.inbox, connection.outbox),
-        )
-
-    def unregister_connection(self, connection):
-        logger.debug("Unregistering active connection: %s", connection)
-        self._connections.remove(
-            (connection, connection.inbox, connection.outbox),
-        )
+    def unregister_connection(self, connection, engine):
+        logger.debug("Unregistering inactive connection: %s", connection)
 
         if self.type == XPUB and not connection.inbox.empty():
             logger.debug(
                 "XPUB socket's inbox not empty: adding it back to the pool of "
                 "inboxes.",
             )
-            self._connections.append((None, connection.inbox.clone(), None))
+            peer = next(p for p in self._peers if p.engine is engine)
+            peer.engine = None
+            peer.connection = None
+            peer.outbox = None
+        else:
+            self._peers.pop_first_match(Peer.engine_check(engine))
 
     def generate_identity(self):
         """
@@ -202,32 +267,27 @@ class Socket(CompositeClosableAsyncObject):
 
         return identity
 
-    async def _fair_get_inbox(self):
+    async def _fair_get_in_peer(self):
         """
-        Get the first available inbox in a fair manner.
+        Get the first available available inbound peer in a fair manner.
 
-        :returns: A connection and its inbox, which is guaranteed not to be
+        :returns: A `Peer` inbox, whose inbox is guaranteed not to be
             empty (and thus can be read from without blocking).
-
-        ..warning:
-            The returned connection may be `None` if a salvaged inbox was
-            selected. This should normally only happen with XPUB sockets.
         """
-        connection = None
-        inbox = None
+        peer = None
 
-        while not inbox:
-            await self._fair_incoming_connections.wait_not_empty()
+        while not peer:
+            await self._in_peers.wait_not_empty()
 
             # This rotates the list, implementing fair-queuing.
-            connections = list(self._fair_incoming_connections)
+            peers = list(self._in_peers)
 
             tasks = [
                 asyncio.ensure_future(
-                    inbox.wait_not_empty(),
+                    p.inbox.wait_not_empty(),
                     loop=self.loop,
                 )
-                for _, inbox, _ in connections
+                for p in peers
             ]
 
             try:
@@ -239,55 +299,54 @@ class Socket(CompositeClosableAsyncObject):
                 for task in tasks:
                     task.cancel()
 
-            connection, inbox = next(
+            peer = next(
                 (
-                    (conn, inbox)
-                    for task, (conn, inbox, _) in zip(tasks, connections)
+                    p
+                    for task, p in zip(tasks, peers)
                     if task in done and not task.cancelled()
                 ),
-                (None, None),
+                None,
             )
 
-        return connection, inbox
+        return peer
 
     async def _fair_recv(self):
         """
-        Receive from all the existing connections, rotating the list of
-        connections every time.
+        Receive from all the existing peers, rotating the list of peers every
+        time.
 
         :returns: The frames.
         """
-        connection, inbox = await self._fair_get_inbox()
-        result = inbox.read_nowait()
+        peer = await self._fair_get_in_peer()
+        result = peer.inbox.read_nowait()
 
-        # Make sure we remove empty inboxes.
-        if not connection and inbox.empty():
-            self._connections.remove((None, inbox, None))
+        # Make sure we remove gone peers with empty inboxes.
+        if not peer.engine and peer.inbox.empty():
+            self._peers.remove(peer)
 
         return result
 
-    async def _fair_get_outbox(self):
+    async def _fair_get_out_peer(self):
         """
-        Get the first available, non-blocking outbox or wait until one
+        Get the first available peer, with non-blocking inbox or wait until one
         meets the condition.
 
-        :returns: The connection and outbox that is ready to write.
+        :returns: The peer whose outbox is ready to be written to.
         """
-        connection = None
-        outbox = None
+        peer = None
 
-        while not outbox:
-            await self._fair_outgoing_connections.wait_not_empty()
+        while not peer:
+            await self._out_peers.wait_not_empty()
 
             # This rotates the list, implementing fair-queuing.
-            connections = list(self._fair_outgoing_connections)
+            peers = list(self._out_peers)
 
             tasks = [
                 asyncio.ensure_future(
-                    outbox.wait_not_full(),
+                    p.outbox.wait_not_full(),
                     loop=self.loop,
                 )
-                for _, _, outbox in connections
+                for p in peers
             ]
 
             try:
@@ -299,61 +358,62 @@ class Socket(CompositeClosableAsyncObject):
                 for task in tasks:
                     task.cancel()
 
-            connection, outbox = next(
+            peer = next(
                 (
-                    (conn, outbox)
-                    for task, (conn, _, outbox) in zip(tasks, connections)
-                    if task in done and not outbox.full()
+                    p
+                    for task, p in zip(tasks, peers)
+                    if task in done and not p.outbox.full()
                 ),
-                (None, None),
+                None,
             )
 
-        return connection, outbox
+        return peer
 
     async def _fair_send(self, frames):
         """
-        Send from the first available, non-blocking connection or wait until
-        one meets the condition.
+        Send from the first available, non-blocking peer or wait until one
+        meets the condition.
 
         :params frames: The frames to write.
-        :returns: The connection that was used.
+        :returns: The peer that was used.
         """
-        connection, outbox = await self._fair_get_outbox()
-        outbox.write_nowait(frames)
-        return connection
+        peer = await self._fair_get_out_peer()
+        peer.outbox.write_nowait(frames)
+        return peer
 
     @cancel_on_closing
     async def _send_req(self, frames):
-        if self._current_connection.done():
+        if self._current_peer.done():
             raise InvalidOperation(
                 "Cannot send twice in a row from a REQ socket. Please recv "
                 "from it first",
             )
 
-        await self._fair_outgoing_connections.wait_not_empty()
-        connection, inbox, outbox = next(iter(self._fair_outgoing_connections))
+        await self._out_peers.wait_not_empty()
+        peer = next(iter(self._out_peers))
 
-        await outbox.write([b''] + frames)
-        self._current_connection.set_result((connection, inbox, outbox))
+        await peer.outbox.write([b''] + frames)
+        self._current_peer.set_result(peer)
 
     @cancel_on_closing
     async def _recv_req(self):
-        await self._current_connection
-        connection, inbox, _ = self._current_connection.result()
+        await self._current_peer
+        peer = self._current_peer.result()
 
-        # Let's allow writes back as soon as we know on which connection to
-        # receive.
-        self._current_connection = asyncio.Future(loop=self.loop)
+        # Let's allow writes back as soon as we know on which peer to receive.
+        self._current_peer = asyncio.Future(loop=self.loop)
 
         # As per 28/REQREP, a REQ socket SHALL discard silently any messages
         # received from other peers when processing incoming messages on the
         # current connection.
         with ExitStack() as stack:
-            for conn, _, _ in self._connections:
-                if conn is not connection:
-                    stack.enter_context(conn.discard_incoming_messages())
+            for p in self._peers:
+                if p is not peer:
+                    stack.enter_context(
+                        p.connection.discard_incoming_messages(),
+                    )
 
-            frames = await inbox.read()
+            frames = await peer.inbox.read()
 
             # We need to get rid of the empty delimiter.
             if frames[0] != b'':
@@ -362,7 +422,7 @@ class Socket(CompositeClosableAsyncObject):
                     "connection. The recv() call will NEVER return !",
                     frames,
                 )
-                connection.close()
+                peer.connection.close()
 
                 # This may seem weird but we must treat these errors as if the
                 # peer did never reply, which means blocking forever (at least
@@ -381,31 +441,29 @@ class Socket(CompositeClosableAsyncObject):
 
     @cancel_on_closing
     async def _send_rep(self, frames):
-        await self._current_connection
-        connection, inbox, outbox, envelope = self._current_connection.result()
+        await self._current_peer
+        peer, envelope = self._current_peer.result()
 
         # Let's allow reads back as soon as we know on which connection to
         # receive.
-        self._current_connection = asyncio.Future(loop=self.loop)
+        self._current_peer = asyncio.Future(loop=self.loop)
 
-        await outbox.write(envelope + frames)
+        await peer.outbox.write(envelope + frames)
 
     @cancel_on_closing
     async def _recv_rep(self):
-        if self._current_connection.done():
+        if self._current_peer.done():
             raise InvalidOperation(
                 "Cannot receive twice in a row from a REP socket. Please send "
                 "from it first",
             )
 
-        connection, inbox = await self._fair_get_inbox()
-        frames = connection.inbox.read_nowait()
+        peer = await self._fair_get_in_peer()
+        frames = peer.inbox.read_nowait()
         delimiter_index = frames.index(b'')
         envelope = frames[:delimiter_index + 1]
         message = frames[delimiter_index + 1:]
-        self._current_connection.set_result(
-            (connection, inbox, connection.outbox, envelope),
-        )
+        self._current_peer.set_result((peer, envelope))
         return message
 
     @cancel_on_closing
@@ -421,22 +479,22 @@ class Socket(CompositeClosableAsyncObject):
         identity = frames.pop(0)
 
         try:
-            outbox = next(
-                outbox for conn, _, outbox in self._connections
-                if conn.identity == identity and not outbox.full()
+            peer = next(
+                p for p in self._peers
+                if p.connection.identity == identity and not p.outbox.full()
             )
         except StopIteration:
             # We drop the messages as their is no suitable connection to write
             # it to.
             pass
         else:
-            outbox.write_nowait(frames)
+            peer.outbox.write_nowait(frames)
 
     @cancel_on_closing
     async def _recv_router(self):
-        connection, inbox = await self._fair_get_inbox()
-        frames = inbox.read_nowait()
-        frames.insert(0, connection.identity)
+        peer = await self._fair_get_in_peer()
+        frames = peer.inbox.read_nowait()
+        frames.insert(0, peer.connection.identity)
         return frames
 
     @cancel_on_closing
@@ -455,12 +513,15 @@ class Socket(CompositeClosableAsyncObject):
     async def _send_pub(self, frames):
         topic = frames[0]
 
-        for conn, _, outbox in self._connections:
-            if not outbox.full() and next(
-                (topic.startswith(subs) for subs in conn.subscriptions),
+        for peer in self._peers:
+            if peer.connection and not peer.outbox.full() and next(
+                (
+                    topic.startswith(subs)
+                    for subs in peer.connection.subscriptions
+                ),
                 None,
             ):
-                outbox.write_nowait(frames)
+                peer.outbox.write_nowait(frames)
 
     @cancel_on_closing
     async def _recv_xpub(self):
@@ -498,13 +559,13 @@ class Socket(CompositeClosableAsyncObject):
         # the execution below honor the setting.
         self._subscriptions.append(topic)
 
-        if self._connections:
+        if self._peers:
             tasks = [
                 asyncio.ensure_future(
-                    connection.local_subscribe(topic),
+                    peer.connection.local_subscribe(topic),
                     loop=self.loop,
                 )
-                for connection, _, _ in self._connections
+                for peer in self._peers
             ]
 
             try:
@@ -529,13 +590,13 @@ class Socket(CompositeClosableAsyncObject):
         # the execution below honor the setting.
         self._subscriptions.append(topic)
 
-        if self._connections:
+        if self._peers:
             tasks = [
                 asyncio.ensure_future(
-                    connection.local_unsubscribe(topic),
+                    peer.connection.local_unsubscribe(topic),
                     loop=self.loop,
                 )
-                for connection in self._connections
+                for peer in self._peers
             ]
 
             try:

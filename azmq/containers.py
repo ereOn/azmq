@@ -59,8 +59,10 @@ class AsyncList(list, AsyncObject):
         self._refresh()
 
     def pop(self, *args, **kwargs):
-        super().pop(*args, **kwargs)
-        self._refresh()
+        try:
+            return super().pop(*args, **kwargs)
+        finally:
+            self._refresh()
 
     def insert(self, *args, **kwargs):
         super().insert(*args, **kwargs)
@@ -85,6 +87,25 @@ class AsyncList(list, AsyncObject):
         :returns: A `FairListProxy` instance.
         """
         return FairListProxy(self)
+
+    def pop_first_match(self, criteria, default=None):
+        """
+        Pop the first item for which the specified criteria is met.
+
+        :param criteria: A callable that takes an item as its sole argument.
+        :param default: The value to return if no match is found.
+        :returns: The item which was extracted from the list, or `default`, if
+            no such item was found.
+        """
+        try:
+            index = next(
+                index for (index, item) in enumerate(self)
+                if criteria(item)
+            )
+        except StopIteration:
+            return default
+
+        return self.pop(index)
 
 
 class FairListProxy(object):

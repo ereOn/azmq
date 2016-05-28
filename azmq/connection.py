@@ -9,8 +9,6 @@ from contextlib import contextmanager
 from .common import (
     ClosableAsyncObject,
     cancel_on_closing,
-    AsyncInbox,
-    AsyncOutbox,
 )
 from .constants import (
     PUB,
@@ -54,34 +52,23 @@ class Connection(ClosableAsyncObject):
         self.local_identity = attributes.get('identity', b'')
         self.identity = None
         self._ready_future = asyncio.Future(loop=self.loop)
+        self._queues_future = asyncio.Future(loop=self.loop)
         self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
-        self.inbox = AsyncInbox(
-            maxsize=attributes['max_inbox_size'],
-            loop=self.loop,
-        )
-        self.outbox = AsyncOutbox(
-            maxsize=attributes['max_outbox_size'],
-            loop=self.loop,
-        )
+        self.inbox = None
+        self.outbox = None
         self._discard_incoming_messages = False
-        self._discard_outgoing_messages = False
         self.subscriptions = []
 
     @property
     def ready(self):
         return self._ready_future.done()
 
+    def set_queues(self, inbox, outbox):
+        self._queues_future.set_result((inbox, outbox))
+
     @cancel_on_closing
     async def wait_ready(self):
         await self._ready_future
-
-    def close_read(self):
-        self._discard_incoming_messages = True
-        self.inbox.clear()
-
-    def close_write(self):
-        self._discard_outgoing_messages = True
-        self.outbox.clear()
 
     async def on_close(self, result):
         self.writer.close()
@@ -206,6 +193,9 @@ class Connection(ClosableAsyncObject):
         logger.debug("Connection is now ready to read and write.")
         self._ready_future.set_result(None)
 
+        await self._queues_future
+        self.inbox, self.outbox = self._queues_future.result()
+
         read_task = asyncio.ensure_future(self.read(), loop=self.loop)
         write_task = asyncio.ensure_future(self.write(), loop=self.loop)
 
@@ -292,6 +282,4 @@ class Connection(ClosableAsyncObject):
 
         while not self.closing:
             frames = await outbox.read()
-
-            if not self._discard_outgoing_messages:
-                write_frames(self.writer, frames)
+            write_frames(self.writer, frames)
