@@ -18,6 +18,7 @@ from .common import (
 )
 from .constants import (
     DEALER,
+    PAIR,
     PUB,
     PUSH,
     PULL,
@@ -120,6 +121,9 @@ class Socket(CompositeClosableAsyncObject):
         elif self.type == PULL:
             self.recv_multipart = self._recv_pull
             self.send_multipart = self._no_send
+        elif self.type == PAIR:
+            self.recv_multipart = self._recv_pair
+            self.send_multipart = self._send_pair
         else:
             raise RuntimeError("Unsupported socket type: %r" % self.type)
 
@@ -559,6 +563,34 @@ class Socket(CompositeClosableAsyncObject):
     @cancel_on_closing
     async def _recv_pull(self):
         return await self._fair_recv()
+
+    @cancel_on_closing
+    async def _send_pair(self, frames):
+        # We only send to the first connected peer.
+        peer = None
+
+        while not peer:
+            await self._peers.wait_not_empty()
+            peer = self._peers[0]
+
+            try:
+                await peer.outbox.write(frames)
+            except asyncio.CancelledError:
+                peer = None
+
+    @cancel_on_closing
+    async def _recv_pair(self):
+        # We only receive from the first connected peer.
+        peer = None
+
+        while not peer:
+            await self._peers.wait_not_empty()
+            peer = self._peers[0]
+
+            try:
+                return await peer.inbox.read()
+            except asyncio.CancelledError:
+                peer = None
 
     @cancel_on_closing
     async def subscribe(self, topic):

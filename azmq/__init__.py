@@ -4,6 +4,7 @@ An asyncio-native implementation of ZMTP.
 
 from .constants import (
     DEALER,
+    PAIR,
     PUB,
     PULL,
     PUSH,
@@ -22,6 +23,7 @@ from .socket import Socket
 __all__ = [
     'Context',
     'DEALER',
+    'PAIR',
     'PUB',
     'PULL',
     'PUSH',

@@ -40,7 +40,7 @@ implemented already):
   * [x] XSUB
   * [x] PUSH
   * [x] PULL
-  * [ ] PAIR
+  * [x] PAIR
 
 - Those transports:
   * [x] TCP client
