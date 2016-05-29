@@ -74,22 +74,14 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
                             logger.exception("Connection ready signal failed.")
 
                     try:
-                        if (
-                            await connection.wait_closed() !=
-                            Connection.CLOSE_RETRY
-                        ) or self.closing:
-                            logger.debug(
-                                "Connection to %s:%s closed definitely.",
-                                self.host,
-                                self.port,
-                            )
-                            break
-                        else:
-                            logger.debug(
-                                "Connection to %s:%s closed. Retrying...",
-                                self.host,
-                                self.port,
-                            )
+                        await connection.wait_closed()
+                        logger.debug(
+                            "Connection to %s:%s closed definitely.",
+                            self.host,
+                            self.port,
+                        )
+                        break
+
                     finally:
                         if connection.ready:
                             self.on_connection_lost.emit(connection)

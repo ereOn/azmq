@@ -33,16 +33,8 @@ from .messaging import (
 
 
 class Connection(ClosableAsyncObject):
-    CLOSE_RETRY = object()
-
-    class Retry(RuntimeError):
-        pass
-
     """
     Implements a ZMTP connection.
-
-    If closed with `CLOSE_RETRY`, give a hint to the managing engine to retry
-    the connection, if possible.
     """
     def __init__(self, reader, writer, attributes, **kwargs):
         super().__init__(**kwargs)
@@ -68,18 +60,24 @@ class Connection(ClosableAsyncObject):
 
     @cancel_on_closing
     async def wait_ready(self):
-        await self._ready_future
+        # Protect the future from being cancelled in case the wait itself is
+        # cancelled.
+        await asyncio.shield(self._ready_future)
 
     async def on_close(self, result):
-        self.writer.close()
+        # When the closing state is set, all tasks in the run task are
+        # guaranteed to stop, so we can just wait gracefully for it to happen.
         await self.run_task
-
         await self.unsubscribe_all()
 
-        self.inbox.close()
-        self.outbox.close()
-        await self.inbox.wait_closed()
-        await self.outbox.wait_closed()
+        if self.outbox:
+            self.outbox.close()
+            await self.outbox.wait_closed()
+
+        if self.inbox:
+            self.inbox.close()
+            await self.inbox.wait_closed()
+
         return result
 
     @contextmanager
@@ -106,8 +104,6 @@ class Connection(ClosableAsyncObject):
     async def run(self):
         try:
             await self.on_run()
-        except self.Retry:
-            self.close(self.CLOSE_RETRY)
         except ProtocolError as ex:
             logger.debug("Protocol error (%s). Terminating connection.", ex)
         except asyncio.IncompleteReadError:
@@ -213,15 +209,23 @@ class Connection(ClosableAsyncObject):
 
             await asyncio.wait([read_task, write_task], loop=self.loop)
 
+            # Flush out the unset outgoing messages before we exit.
+            while not self.outbox.empty():
+                write_frames(self.writer, self.outbox.read_nowait())
+
     @cancel_on_closing
     async def local_subscribe(self, topic):
         logger.debug("Subscribed to topic %r.", topic)
-        await self.outbox.write([b'\x01' + topic])
+
+        if self.outbox:
+            await self.outbox.write([b'\x01' + topic])
 
     @cancel_on_closing
     async def local_unsubscribe(self, topic):
         logger.debug("Unsubscribed from topic %r.", topic)
-        await self.outbox.write([b'\x00' + topic])
+
+        if self.outbox:
+            await self.outbox.write([b'\x00' + topic])
 
     async def subscribe(self, topic):
         self.subscriptions.append(topic)
@@ -229,7 +233,8 @@ class Connection(ClosableAsyncObject):
 
         # XPUB sockets must inform the application of the subscription.
         if self.local_socket_type == XPUB:
-            await self.inbox.write([b'\x01' + topic])
+            if self.inbox:
+                await self.inbox.write([b'\x01' + topic])
 
     async def unsubscribe(self, topic):
         try:
@@ -240,7 +245,8 @@ class Connection(ClosableAsyncObject):
         else:
             # XPUB sockets must inform the application of the unsubscription.
             if self.local_socket_type == XPUB:
-                await self.inbox.write([b'\x00' + topic])
+                if self.inbox:
+                    await self.inbox.write([b'\x00' + topic])
 
     async def unsubscribe_all(self):
         await asyncio.gather(

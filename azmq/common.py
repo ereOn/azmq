@@ -48,7 +48,8 @@ class ClosableAsyncObject(AsyncObject):
         """
         Closes asynchronously the object upon deletion.
         """
-        self.close()
+        if not self.loop.is_closed():
+            self.close()
 
     @property
     def closing(self):
@@ -68,7 +69,9 @@ class ClosableAsyncObject(AsyncObject):
         """
         Wait for the instance to be closed.
         """
-        await self._closed_future
+        # Prevents the future from being cancelled in case the wait itself gets
+        # cancelled.
+        await asyncio.shield(self._closed_future)
         return self._closed_future.result()
 
     async def await_until_closing(self, coro):
@@ -156,7 +159,7 @@ class ClosableAsyncObject(AsyncObject):
         self.on_closed.emit(self)
         self._closed_future.set_result(future.result())
 
-    def close(self, result=True):
+    def close(self, result=None):
         """
         Close the instance.
         """
@@ -370,6 +373,9 @@ class AsyncInbox(ClosableAsyncObject):
         """
         await self._can_read.wait()
 
+    def full(self):
+        return self._queue.full()
+
     def empty(self):
         return self._queue.empty()
 
@@ -450,6 +456,9 @@ class AsyncOutbox(ClosableAsyncObject):
     def full(self):
         return self._queue.full()
 
+    def empty(self):
+        return self._queue.empty()
+
     @cancel_on_closing
     async def read(self):
         """
@@ -460,6 +469,15 @@ class AsyncOutbox(ClosableAsyncObject):
         result = await self._queue.get()
         self._can_write.set()
         return result
+
+    def read_nowait(self):
+        """
+        Read an item from the queue.
+
+        :returns: The item.
+        """
+        self._can_write.set()
+        return self._queue.get_nowait()
 
     def clear(self):
         """
