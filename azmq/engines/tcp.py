@@ -5,7 +5,7 @@ TCP engines.
 import asyncio
 
 from ..common import CompositeClosableAsyncObject
-from ..connection import Connection
+from ..connection import StreamConnection
 from ..log import logger
 
 from .base import BaseEngine
@@ -52,7 +52,7 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
                     self.port,
                 )
 
-                async with Connection(
+                async with StreamConnection(
                     reader=reader,
                     writer=writer,
                     attributes=self.attributes,
@@ -109,7 +109,7 @@ class TCPServerEngine(BaseEngine, CompositeClosableAsyncObject):
 
         logger.debug("Connection from %s established.", peername)
 
-        async with Connection(
+        async with StreamConnection(
             reader=reader,
             writer=writer,
             attributes=self.attributes,

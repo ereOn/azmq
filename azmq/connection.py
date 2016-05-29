@@ -32,9 +32,9 @@ from .messaging import (
 )
 
 
-class Connection(ClosableAsyncObject):
+class StreamConnection(ClosableAsyncObject):
     """
-    Implements a ZMTP connection.
+    Implements a ZMTP connection that works on a pair of streams.
     """
     def __init__(
         self,
