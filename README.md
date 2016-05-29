@@ -39,7 +39,7 @@ implemented already):
   * [x] SUB
   * [x] XSUB
   * [x] PUSH
-  * [ ] PULL
+  * [x] PULL
   * [ ] PAIR
 
 - Those transports:

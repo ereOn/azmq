@@ -20,6 +20,7 @@ from .constants import (
     DEALER,
     PUB,
     PUSH,
+    PULL,
     REP,
     REQ,
     ROUTER,
@@ -116,6 +117,9 @@ class Socket(CompositeClosableAsyncObject):
         elif self.type == PUSH:
             self.recv_multipart = self._no_recv
             self.send_multipart = self._send_push
+        elif self.type == PULL:
+            self.recv_multipart = self._recv_pull
+            self.send_multipart = self._no_send
         else:
             raise RuntimeError("Unsupported socket type: %r" % self.type)
 
@@ -551,6 +555,10 @@ class Socket(CompositeClosableAsyncObject):
     @cancel_on_closing
     async def _send_push(self, frames):
         await self._fair_send(frames)
+
+    @cancel_on_closing
+    async def _recv_pull(self):
+        return await self._fair_recv()
 
     @cancel_on_closing
     async def subscribe(self, topic):

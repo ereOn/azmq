@@ -5,6 +5,7 @@ An asyncio-native implementation of ZMTP.
 from .constants import (
     DEALER,
     PUB,
+    PULL,
     PUSH,
     REP,
     REQ,
@@ -22,6 +23,7 @@ __all__ = [
     'Context',
     'DEALER',
     'PUB',
+    'PULL',
     'PUSH',
     'REP',
     'REQ',
