@@ -56,37 +56,20 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
                     reader=reader,
                     writer=writer,
                     attributes=self.attributes,
+                    on_ready=self.on_connection_ready.emit,
+                    on_lost=self.on_connection_lost.emit,
                 ) as connection:
                     self.register_child(connection)
+                    await connection.wait_closed()
 
-                    await asyncio.wait(
-                        [
-                            connection.wait_ready(),
-                            connection.wait_closed(),
-                        ],
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
+                logger.debug(
+                    "Connection to %s:%s closed.",
+                    self.host,
+                    self.port,
+                )
 
-                    if connection.ready:
-                        try:
-                            self.on_connection_ready.emit(connection)
-                        except:
-                            logger.exception("Connection ready signal failed.")
-
-                    try:
-                        await connection.wait_closed()
-                        logger.debug(
-                            "Connection to %s:%s closed definitely.",
-                            self.host,
-                            self.port,
-                        )
-                        break
-
-                    finally:
-                        if connection.ready:
-                            self.on_connection_lost.emit(connection)
-
-            await asyncio.sleep(0.5)
+            if not self.closing:
+                await asyncio.sleep(0.5)
 
 
 class TCPServerEngine(BaseEngine, CompositeClosableAsyncObject):
@@ -130,27 +113,10 @@ class TCPServerEngine(BaseEngine, CompositeClosableAsyncObject):
             reader=reader,
             writer=writer,
             attributes=self.attributes,
+            on_ready=self.on_connection_ready.emit,
+            on_lost=self.on_connection_lost.emit,
         ) as connection:
             self.register_child(connection)
+            await connection.wait_closed()
 
-            await asyncio.wait(
-                [
-                    connection.wait_ready(),
-                    connection.wait_closed(),
-                ],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            if connection.ready:
-                try:
-                    self.on_connection_ready.emit(connection)
-                except:
-                    logger.exception("Connection ready signal failed.")
-
-            try:
-                if await connection.wait_closed() or self.closing:
-                    logger.debug("Connection from %s lost.", peername)
-
-            finally:
-                if connection.ready:
-                    self.on_connection_lost.emit(connection)
+        logger.debug("Connection from %s lost.", peername)

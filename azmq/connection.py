@@ -36,33 +36,32 @@ class Connection(ClosableAsyncObject):
     """
     Implements a ZMTP connection.
     """
-    def __init__(self, reader, writer, attributes, **kwargs):
+    def __init__(
+        self,
+        reader,
+        writer,
+        attributes,
+        on_ready,
+        on_lost,
+        **kwargs
+    ):
         super().__init__(**kwargs)
         self.reader = reader
         self.writer = writer
         self.local_socket_type = attributes['socket_type']
         self.local_identity = attributes.get('identity', b'')
+        self.on_ready = on_ready
+        self.on_lost = on_lost
         self.identity = None
-        self._ready_future = asyncio.Future(loop=self.loop)
-        self._queues_future = asyncio.Future(loop=self.loop)
         self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
         self.inbox = None
         self.outbox = None
         self._discard_incoming_messages = False
         self.subscriptions = []
 
-    @property
-    def ready(self):
-        return self._ready_future.done()
-
     def set_queues(self, inbox, outbox):
-        self._queues_future.set_result((inbox, outbox))
-
-    @cancel_on_closing
-    async def wait_ready(self):
-        # Protect the future from being cancelled in case the wait itself is
-        # cancelled.
-        await asyncio.shield(self._ready_future)
+        self.inbox = inbox
+        self.outbox = outbox
 
     async def on_close(self, result):
         # When the closing state is set, all tasks in the run task are
@@ -187,31 +186,44 @@ class Connection(ClosableAsyncObject):
             return
 
         logger.debug("Connection is now ready to read and write.")
-        self._ready_future.set_result(None)
-
-        await self._queues_future
-        self.inbox, self.outbox = self._queues_future.result()
-
-        read_task = asyncio.ensure_future(self.read(), loop=self.loop)
-        write_task = asyncio.ensure_future(self.write(), loop=self.loop)
+        self.on_ready(self)
+        assert self.inbox or self.outbox, (
+            "on_ready callback must either set an inbox or an outbox."
+        )
 
         try:
-            await self.await_until_closing(
-                asyncio.gather(read_task, write_task, loop=self.loop),
-            )
-        except asyncio.CancelledError:
-            logger.debug(
-                "Read/write cycle interrupted. Connection will die soon.",
-            )
+            tasks = []
+
+            if self.inbox:
+                read_task = asyncio.ensure_future(self.read(), loop=self.loop)
+                tasks.append(read_task)
+
+            if self.outbox:
+                write_task = asyncio.ensure_future(
+                    self.write(),
+                    loop=self.loop,
+                )
+                tasks.append(write_task)
+
+            try:
+                await self.await_until_closing(
+                    asyncio.gather(*tasks, loop=self.loop),
+                )
+            except asyncio.CancelledError:
+                logger.debug(
+                    "Read/write cycle interrupted. Connection will die soon.",
+                )
+            finally:
+                for task in tasks:
+                    task.cancel()
+
+                await asyncio.wait(tasks, loop=self.loop)
         finally:
-            read_task.cancel()
-            write_task.cancel()
+            self.on_lost(self)
 
-            await asyncio.wait([read_task, write_task], loop=self.loop)
-
-            # Flush out the unset outgoing messages before we exit.
-            while not self.outbox.empty():
-                write_frames(self.writer, self.outbox.read_nowait())
+        # Flush out the unset outgoing messages before we exit.
+        while not self.outbox.empty():
+            write_frames(self.writer, self.outbox.read_nowait())
 
     @cancel_on_closing
     async def local_subscribe(self, topic):
