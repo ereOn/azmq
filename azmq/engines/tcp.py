@@ -20,16 +20,6 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
         self.attributes = attributes
         self.run_task = asyncio.ensure_future(self.run())
 
-    async def on_close(self, result):
-        await super().on_close(result)
-
-        try:
-            await self.run_task
-        except:
-            pass
-
-        return result
-
     async def run(self):
         while not self.closing:
             try:
@@ -80,16 +70,6 @@ class TCPServerEngine(BaseEngine, CompositeClosableAsyncObject):
         self.port = port
         self.attributes = attributes
         self.run_task = asyncio.ensure_future(self.run())
-
-    async def on_close(self, result):
-        await super().on_close(result)
-
-        try:
-            await self.run_task
-        except:
-            pass
-
-        return result
 
     async def run(self):
         server = await asyncio.start_server(
