@@ -22,3 +22,5 @@ def event_loop():
 
     if tasks:
         loop.run_until_complete(asyncio.wait_for(asyncio.wait(tasks), 5))
+
+    loop.close()

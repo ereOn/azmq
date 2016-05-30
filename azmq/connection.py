@@ -293,6 +293,12 @@ class StreamConnection(BaseConnection):
         self.reader = reader
         self.writer = writer
 
+    async def on_close(self, result):
+        try:
+            return await super().on_close(result)
+        finally:
+            self.writer.close()
+
     async def run(self):
         try:
             await self.on_run()
