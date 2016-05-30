@@ -37,6 +37,10 @@ from .engines.tcp import (
     TCPClientEngine,
     TCPServerEngine,
 )
+from .engines.inproc import (
+    InprocClientEngine,
+    InprocServerEngine,
+)
 from .log import logger
 from .containers import AsyncList
 
@@ -159,15 +163,21 @@ class Socket(CompositeClosableAsyncObject):
                 port=url.port,
                 attributes=self.attributes,
             )
-            engine.on_connection_ready.connect(
-                partial(self.register_connection, engine=engine),
-            )
-            engine.on_connection_lost.connect(
-                partial(self.unregister_connection, engine=engine),
+        elif url.scheme == 'inproc':
+            engine = InprocClientEngine(
+                context=self.context,
+                path=url.path,
+                attributes=self.attributes,
             )
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
 
+        engine.on_connection_ready.connect(
+            partial(self.register_connection, engine=engine),
+        )
+        engine.on_connection_lost.connect(
+            partial(self.unregister_connection, engine=engine),
+        )
         self._outgoing_engines[url] = engine
         peer = Peer(
             engine=engine,
@@ -196,15 +206,21 @@ class Socket(CompositeClosableAsyncObject):
                 port=url.port,
                 attributes=self.attributes,
             )
-            engine.on_connection_ready.connect(
-                partial(self.register_connection, engine=engine),
-            )
-            engine.on_connection_lost.connect(
-                partial(self.unregister_connection, engine=engine),
+        elif url.scheme == 'inproc':
+            engine = InprocServerEngine(
+                context=self.context,
+                path=url.path,
+                attributes=self.attributes,
             )
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
 
+        engine.on_connection_ready.connect(
+            partial(self.register_connection, engine=engine),
+        )
+        engine.on_connection_lost.connect(
+            partial(self.unregister_connection, engine=engine),
+        )
         self._incoming_engines[url] = engine
         self.register_child(engine)
 

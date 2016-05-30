@@ -4,8 +4,10 @@ Base engine class.
 
 from pyslot import Signal
 
+from ..common import CompositeClosableAsyncObject
 
-class BaseEngine(object):
+
+class BaseEngine(CompositeClosableAsyncObject):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.on_connection_ready = Signal()

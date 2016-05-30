@@ -4,14 +4,13 @@ TCP engines.
 
 import asyncio
 
-from ..common import CompositeClosableAsyncObject
 from ..connection import StreamConnection
 from ..log import logger
 
 from .base import BaseEngine
 
 
-class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
+class TCPClientEngine(BaseEngine):
     def on_open(self, host, port, attributes):
         super().on_open()
 
@@ -62,7 +61,7 @@ class TCPClientEngine(BaseEngine, CompositeClosableAsyncObject):
                 await asyncio.sleep(0.5)
 
 
-class TCPServerEngine(BaseEngine, CompositeClosableAsyncObject):
+class TCPServerEngine(BaseEngine):
     def on_open(self, host, port, attributes):
         super().on_open()
 

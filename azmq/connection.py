@@ -143,8 +143,7 @@ class InprocConnection(BaseConnection):
     """
     def __init__(
         self,
-        in_channel,
-        out_channel,
+        channel,
         attributes,
         on_ready,
         on_lost,
@@ -156,8 +155,7 @@ class InprocConnection(BaseConnection):
             on_lost=on_lost,
             **kwargs,
         )
-        self.in_channel = in_channel
-        self.out_channel = out_channel
+        self.channel = channel
 
     async def run(self):
         try:
@@ -169,16 +167,16 @@ class InprocConnection(BaseConnection):
 
     async def on_run(self):
         await self.out_channel.write(b'NULL')
-        mechanism = await self.in_channel.read()
+        mechanism = await self.channel.read()
 
         if mechanism == b'NULL':
-            await self.out_channel.write(
+            await self.channel.write(
                 {
                     b'socket-type': self.local_socket_type,
                     b'identity': self.local_identity,
                 },
             )
-            peer_attributes = await self.in_channel.read()
+            peer_attributes = await self.channel.read()
             logger.debug("Peer attributes: %s", peer_attributes)
 
             if (
@@ -250,7 +248,7 @@ class InprocConnection(BaseConnection):
 
     async def read(self):
         while not self.closing:
-            frames = await self.in_channel.read()
+            frames = await self.channel.read()
 
             if self.local_socket_type in {PUB, XPUB}:
                 type_ = frames[0][0]
@@ -268,7 +266,7 @@ class InprocConnection(BaseConnection):
 
         while not self.closing:
             frames = await outbox.read()
-            await self.out_channel.write(frames)
+            await self.channel.write(frames)
 
 
 class StreamConnection(BaseConnection):
