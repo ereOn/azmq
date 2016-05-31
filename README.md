@@ -45,7 +45,7 @@ implemented already):
 - Those transports:
   * [x] TCP client
   * [x] TCP server
-  * [ ] Inproc
+  * [x] Inproc
   * [ ] UNIX sockets
 
 Also, the intended API tries to be close to the one of pyzmq, but not too

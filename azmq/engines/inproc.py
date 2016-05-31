@@ -15,6 +15,7 @@ class InprocClientEngine(BaseEngine):
         super().on_open()
 
         self.context = context
+        self.path = path
         self.attributes = attributes
         self.run_task = asyncio.ensure_future(self.run())
 
@@ -25,9 +26,8 @@ class InprocClientEngine(BaseEngine):
             )
 
             logger.debug(
-                "Connection to %s:%s established.",
-                self.host,
-                self.port,
+                "Connection to %s established.",
+                self.path,
             )
 
             async with InprocConnection(

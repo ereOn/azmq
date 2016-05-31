@@ -166,7 +166,7 @@ class InprocConnection(BaseConnection):
             self.close()
 
     async def on_run(self):
-        await self.out_channel.write(b'NULL')
+        await self.channel.write(b'NULL')
         mechanism = await self.channel.read()
 
         if mechanism == b'NULL':
@@ -208,6 +208,7 @@ class InprocConnection(BaseConnection):
 
         logger.debug("Connection is now ready to read and write.")
         self.on_ready(self)
+
         assert self.inbox or self.outbox, (
             "on_ready callback must either set an inbox or an outbox."
         )
