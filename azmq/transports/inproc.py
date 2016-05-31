@@ -47,7 +47,6 @@ class InprocServer(CompositeClosableAsyncObject):
         super().on_open()
         self._handler = handler
         self._tasks = []
-        self._channel_pairs = []
 
     async def on_close(self, result):
         if self._tasks:
@@ -65,7 +64,6 @@ class InprocServer(CompositeClosableAsyncObject):
         self.register_child(right)
         left.link(right)
 
-        self._channel_pairs.append((left, right))
         task = asyncio.ensure_future(self._handler(right))
         self._tasks.append(task)
 

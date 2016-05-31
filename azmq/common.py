@@ -226,7 +226,7 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
         :param child: The child instance.
         """
         self._children.remove(child)
-        child.on_closed.connect(self.unregister_child)
+        child.on_closed.disconnect(self.unregister_child)
 
 
 class AsyncTaskObject(ClosableAsyncObject):
