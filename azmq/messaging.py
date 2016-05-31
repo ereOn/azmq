@@ -172,6 +172,9 @@ class Frame(object):
         self.body = body
         self.last = last
 
+    def __hash__(self):
+        return hash(self.body)
+
     def __repr__(self):
         return repr(self.body)
 
