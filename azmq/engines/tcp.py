@@ -4,7 +4,7 @@ TCP engines.
 
 import asyncio
 
-from ..connection import StreamConnection
+from ..connections.stream import StreamConnection
 from ..log import logger
 
 from .base import BaseEngine

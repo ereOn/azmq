@@ -4,7 +4,7 @@ TCP engines.
 
 import asyncio
 
-from ..connection import InprocConnection
+from ..connections.inproc import InprocConnection
 from ..log import logger
 
 from .base import BaseEngine
