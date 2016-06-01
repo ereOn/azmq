@@ -20,6 +20,17 @@ transports.
 """
 
 
+async def zerosec(awaitable):
+    """
+    Assert that an awaitable would block.
+
+    :param awaitable: The awaitable to wrap.
+    :returns: A decorated awaitable.
+    """
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(awaitable, 0)
+
+
 def onesec(awaitable):
     """
     Causes a normally blocking call to timeout after a while.
@@ -122,18 +133,11 @@ async def test_push_pull_slow_connect(event_loop, endpoint):
             # The PUSH socket binds before the PULL sockets binds and sends
             # a message right away. It should block in this case.
             push_socket.bind(endpoint)
-
-            with pytest.raises(asyncio.TimeoutError):
-                await asyncio.wait_for(
-                    push_socket.send_multipart([b'hello']),
-                    0,
-                )
+            await zerosec(push_socket.send_multipart([b'hello']))
 
             # The PULL sockets finally binds, and should receive no message.
             pull_socket.connect(endpoint)
-
-            with pytest.raises(asyncio.TimeoutError):
-                await asyncio.wait_for(pull_socket.recv_multipart(), 0)
+            await zerosec(pull_socket.recv_multipart())
 
         finally:
             push_socket.close()
@@ -156,8 +160,7 @@ async def test_push_pull_reconnect(event_loop, endpoint):
             push_socket.connect(endpoint)
 
             pull_socket.bind(endpoint)
-            with pytest.raises(asyncio.TimeoutError):
-                await asyncio.wait_for(pull_socket.recv_multipart(), 0)
+            await zerosec(pull_socket.recv_multipart())
 
             await onesec(push_socket.send_multipart([b'hello']))
             message = await onesec(pull_socket.recv_multipart())
@@ -248,3 +251,32 @@ async def test_pub_sub_spam_subscribe_after(event_loop, endpoint):
 
             for socket in sub_sockets:
                 socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_push_pull_max_outbox_size(event_loop, endpoint):
+    async with azmq.Context() as context:
+        push_socket = context.socket(azmq.PUSH)
+        push_socket.max_outbox_size = 1
+        pull_socket = context.socket(azmq.PULL)
+
+        try:
+            # The PUSH socket connects before the PULL sockets binds and sends
+            # two messages right away. The first one should not block but the
+            # second should as the queue size is 1 and the socket can't
+            # possibly have sent the element so far.
+            push_socket.connect(endpoint)
+            await onesec(push_socket.send_multipart([b'one']))
+            await zerosec(push_socket.send_multipart([b'two']))
+
+            # The PULL sockets finally binds, and should receive the first
+            # message, even late.
+            pull_socket.bind(endpoint)
+            message = await onesec(pull_socket.recv_multipart())
+            assert message == [b'one']
+            await zerosec(pull_socket.recv_multipart())
+
+        finally:
+            push_socket.close()
+            pull_socket.close()
