@@ -121,7 +121,7 @@ class InprocConnection(BaseConnection):
 
         # Flush out the unset outgoing messages before we exit.
         while not self.outbox.empty():
-            self.channel.write(self.outbox.read_nowait())
+            await self.channel.write(self.outbox.read_nowait())
 
     async def read(self):
         while not self.closing:

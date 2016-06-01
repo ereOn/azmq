@@ -138,3 +138,113 @@ async def test_push_pull_slow_connect(event_loop, endpoint):
         finally:
             push_socket.close()
             pull_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_push_pull_reconnect(event_loop, endpoint):
+    async with azmq.Context() as context:
+        push_socket = context.socket(azmq.PUSH)
+        pull_socket = context.socket(azmq.PULL)
+
+        try:
+            push_socket.connect(endpoint)
+            await onesec(push_socket.send_multipart([b'hello']))
+
+            # The disconnection should cause the outgoing message to be lost.
+            push_socket.disconnect(endpoint)
+            push_socket.connect(endpoint)
+
+            pull_socket.bind(endpoint)
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(pull_socket.recv_multipart(), 0)
+
+            await onesec(push_socket.send_multipart([b'hello']))
+            message = await onesec(pull_socket.recv_multipart())
+            assert message == [b'hello']
+
+        finally:
+            push_socket.close()
+            pull_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_pub_sub_spam(event_loop, endpoint):
+    async with azmq.Context() as context:
+        pub_socket = context.socket(azmq.PUB)
+        sub_sockets = [
+            context.socket(azmq.SUB)
+            for _ in range(10)
+        ]
+
+        try:
+            async def send():
+                pub_socket.bind(endpoint)
+
+                while True:
+                    await onesec(pub_socket.send_multipart([b'a', b'b']))
+
+            async def recv(socket):
+                await socket.subscribe(b'a')
+                socket.connect(endpoint)
+                message = await onesec(socket.recv_multipart())
+                assert message == [b'a', b'b']
+
+            send_task = asyncio.ensure_future(send())
+            recv_tasks = [
+                asyncio.ensure_future(recv(socket))
+                for socket in sub_sockets
+            ]
+
+            try:
+                await onesec(asyncio.gather(*recv_tasks))
+            finally:
+                send_task.cancel()
+
+        finally:
+            pub_socket.close()
+
+            for socket in sub_sockets:
+                socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_pub_sub_spam_subscribe_after(event_loop, endpoint):
+    async with azmq.Context() as context:
+        pub_socket = context.socket(azmq.PUB)
+        sub_sockets = [
+            context.socket(azmq.SUB)
+            for _ in range(10)
+        ]
+
+        try:
+            async def send():
+                pub_socket.bind(endpoint)
+
+                while True:
+                    await onesec(pub_socket.send_multipart([b'a', b'b']))
+
+            async def recv(socket):
+                socket.connect(endpoint)
+                await socket.subscribe(b'a')
+                message = await onesec(socket.recv_multipart())
+                assert message == [b'a', b'b']
+
+            send_task = asyncio.ensure_future(send())
+            recv_tasks = [
+                asyncio.ensure_future(recv(socket))
+                for socket in sub_sockets
+            ]
+
+            try:
+                await onesec(asyncio.gather(*recv_tasks))
+            finally:
+                send_task.cancel()
+
+        finally:
+            pub_socket.close()
+
+            for socket in sub_sockets:
+                socket.close()

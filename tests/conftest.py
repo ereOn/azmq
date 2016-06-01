@@ -18,7 +18,7 @@ def event_loop():
 
     yield loop
 
-    tasks = asyncio.Task.all_tasks()
+    tasks = [task for task in asyncio.Task.all_tasks() if not task.done()]
 
     if tasks:
         loop.run_until_complete(asyncio.wait_for(asyncio.wait(tasks), 5))

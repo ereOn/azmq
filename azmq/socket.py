@@ -623,16 +623,16 @@ class Socket(CompositeClosableAsyncObject):
         # Do this **BEFORE** awaiting so that new connections created during
         # the execution below honor the setting.
         self._subscriptions.append(topic)
+        tasks = [
+            asyncio.ensure_future(
+                peer.connection.local_subscribe(topic),
+                loop=self.loop,
+            )
+            for peer in self._peers
+            if peer.connection
+        ]
 
-        if self._peers:
-            tasks = [
-                asyncio.ensure_future(
-                    peer.connection.local_subscribe(topic),
-                    loop=self.loop,
-                )
-                for peer in self._peers
-            ]
-
+        if tasks:
             try:
                 await asyncio.wait(tasks, loop=self.loop)
             finally:
@@ -654,16 +654,16 @@ class Socket(CompositeClosableAsyncObject):
         # Do this **BEFORE** awaiting so that new connections created during
         # the execution below honor the setting.
         self._subscriptions.append(topic)
+        tasks = [
+            asyncio.ensure_future(
+                peer.connection.local_unsubscribe(topic),
+                loop=self.loop,
+            )
+            for peer in self._peers
+            if peer.connection
+        ]
 
-        if self._peers:
-            tasks = [
-                asyncio.ensure_future(
-                    peer.connection.local_unsubscribe(topic),
-                    loop=self.loop,
-                )
-                for peer in self._peers
-            ]
-
+        if tasks:
             try:
                 await asyncio.wait(tasks, loop=self.loop)
             finally:
