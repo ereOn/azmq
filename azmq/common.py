@@ -241,7 +241,9 @@ class AsyncTaskObject(ClosableAsyncObject):
 
     async def on_close(self, result):
         self.run_task.cancel()
-        await self.run_task
+
+        await asyncio.wait([self.run_task])
+
         return result
 
     async def run(self):
@@ -263,16 +265,16 @@ class AsyncTimeout(AsyncTaskObject):
     """
     A resetable asynchronous timeout.
     """
-    def on_open(self, coro, timeout):
+    def on_open(self, callback, timeout):
         """
         Initialize a new timeout.
 
-        :param coro: The coroutine to execute when the timeout reaches the end
-            of its life.
+        :param callback: The  callbackto execute when the timeout reaches the
+            end of its life.
         :param timeout: The maximum time to wait for, in seconds.
         """
         super().on_open()
-        self.coro = coro
+        self.callback = callback
         self.timeout = timeout
         self.revive_event = asyncio.Event(loop=self.loop)
 
@@ -286,9 +288,17 @@ class AsyncTimeout(AsyncTaskObject):
                 )
                 self.revive_event.clear()
         except asyncio.TimeoutError:
-            await self.coro()
+            self.callback()
 
-    def revive(self):
+    def revive(self, timeout=None):
+        """
+        Revive the timeout.
+
+        :param timeout: If not `None`, specifies a new timeout value to use.
+        """
+        if timeout is not None:
+            self.timeout = timeout
+
         self.revive_event.set()
 
 
@@ -317,15 +327,25 @@ class AsyncPeriodicTimer(AsyncTaskObject):
                     loop=self.loop,
                 )
             except asyncio.TimeoutError:
-                await self.coro()
+                try:
+                    await self.coro()
+                except Exception:
+                    logger.exception(
+                        "Error while running AsyncPeriodicTimer callback.",
+                    )
             else:
                 self.reset_event.clear()
 
-    def reset(self):
+    def reset(self, period=None):
         """
         Reset the internal timer, effectively causing the next tick to happen
         in `self.period` seconds.
+
+        :param period: If not `None`, specifies a new period to use.
         """
+        if period is not None:
+            self.period = period
+
         self.reset_event.set()
 
 

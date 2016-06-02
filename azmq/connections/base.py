@@ -7,14 +7,14 @@ import asyncio
 from contextlib import contextmanager
 
 from ..common import (
-    ClosableAsyncObject,
+    CompositeClosableAsyncObject,
     cancel_on_closing,
 )
 from ..constants import XPUB
 from ..log import logger
 
 
-class BaseConnection(ClosableAsyncObject):
+class BaseConnection(CompositeClosableAsyncObject):
     """
     The base class for ZMTP connections.
     """
@@ -43,6 +43,7 @@ class BaseConnection(ClosableAsyncObject):
         await self._run_task
         await self.unsubscribe_all()
 
+        # FIXME: This prevents recycling of inboxes/outboxes upon reconnect.
         if self.outbox:
             self.outbox.close()
             await self.outbox.wait_closed()
@@ -50,6 +51,8 @@ class BaseConnection(ClosableAsyncObject):
         if self.inbox:
             self.inbox.close()
             await self.inbox.wait_closed()
+
+        await super().on_close(result)
 
         return result
 

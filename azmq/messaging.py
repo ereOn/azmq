@@ -42,7 +42,7 @@ def write_second_greeting(buffer, minor_version, mechanism, as_server):
     buffer.write(FILLER)
 
 
-def write_command(buffer, name, data):
+def write_command(buffer, name, *datas):
     """
     Write a command to the specified buffer.
 
@@ -52,7 +52,7 @@ def write_command(buffer, name, data):
     """
     assert len(name) < 256
 
-    body_len = len(name) + 1 + len(data)
+    body_len = len(name) + 1 + sum(len(data) for data in datas)
 
     if body_len < 256:
         buffer.write(struct.pack('!BBB', 0x04, body_len, len(name)))
@@ -60,7 +60,30 @@ def write_command(buffer, name, data):
         buffer.write(struct.pack('!BQB', 0x06, body_len, len(name)))
 
     buffer.write(name)
-    buffer.write(data)
+
+    for data in datas:
+        buffer.write(data)
+
+
+def write_ping_command(buffer, ttl, context):
+    """
+    Write a ping to the specified buffer.
+
+    :param buffer: The buffer to write to.
+    :param ttl: The ping time to live, in seconds.
+    :param context: The ping context, as arbitrary bytes.
+    """
+    write_command(buffer, b'PING', struct.pack('!H', int(ttl * 10)), context)
+
+
+def write_pong_command(buffer, context):
+    """
+    Write a pong to the specified buffer.
+
+    :param buffer: The buffer to write to.
+    :param context: The ping context, as arbitrary bytes.
+    """
+    write_command(buffer, b'PONG', context)
 
 
 def write_frame_more(buffer, frame):
@@ -297,3 +320,26 @@ def load_ready_command(data):
         result[name.lower()] = value
 
     return result
+
+
+def load_ping_command(data):
+    """
+    Load a ping command.
+
+    :param data: The data, as received in a PING command.
+    :returns: A tuple (ttl, ping context).
+    """
+    ttl = struct.unpack('!H', data[:2])[0]
+    ping_context = data[2:]
+
+    return ttl, ping_context
+
+
+def load_pong_command(data):
+    """
+    Load a pong command.
+
+    :param data: The data, as received in a PONG command.
+    :returns: The ping context.
+    """
+    return data
