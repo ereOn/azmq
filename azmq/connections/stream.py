@@ -4,6 +4,7 @@ Implements a ZMTP connection.
 
 import asyncio
 import random
+import socket
 import struct
 
 from ..constants import (
@@ -60,6 +61,11 @@ class StreamConnection(BaseConnection):
         )
         self.reader = reader
         self.writer = writer
+        self.writer.transport.get_extra_info('socket').setsockopt(
+            socket.IPPROTO_TCP,
+            socket.TCP_NODELAY,
+            1,
+        )
         self.version = None
         self.ping_period = 5
         self.ping_timeout = self.ping_period * 3
