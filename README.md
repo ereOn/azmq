@@ -67,11 +67,35 @@ AZMQ is fairly recent and only a few benchmarks where made to assert his (in)eff
 
 Here is a graph that shows the time spent by AZMQ and the reference
 implementation (pyzmq) when sending a bunch of messages of different sizes and
-waiting for a reply for each of those.
+waiting for a reply for each of those, over a LAN. The time spent by the
+generation of the messages or to establish the various connections is **NOT**
+contained in these measurements. Only the sending and receive of messages.
 
 Details about the methodology can be found in the [benchmark](benchmark) folder.
 
+<p align="center">
 ![graph](benchmark/azmq_pyzmq_time_spent_comparison.png)
+</p>
+
+From the benchmark, it seems that `azmq` is greatly outperformed (by a factor
+of 10) for small messages by `pyzmq`. This is no surprise provided that:
+
+- `azmq` is a pure Python library. `pyzmq` is a Python wrapper around the official `libzmq`, a C library.
+- `azmq` was never optimized as of now.
+- For small messages, which usually take less time to send on the wire, the
+  overhead of pure Python code is more significant and thus, noticeable. In
+  affine functions terms, **the `azmq` graph has a bigger constant**.
+
+However, it seems for bigger messages, `azmq` takes less time than `pyzmq`.
+This could be explained by the fact that messages are carried by reference
+inside all of `azmq` because those almost never leave the Python realm.
+
+For some weird reason, using `copy=False` in `pyzmq` results in the worst of
+both worlds.
+
+**Theories for those results or insights on the benchmark methodology are
+welcome**. The goal is not to lie about the library's performance, quite the
+opposite.
 
 ## Installation
 
