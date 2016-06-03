@@ -86,6 +86,7 @@ class Socket(CompositeClosableAsyncObject):
         self._out_peers = self._peers.create_proxy()
         self._base_identity = random.getrandbits(32)
         self._subscriptions = []
+        self._read_lock = asyncio.Lock(loop=self.loop)
 
         if self.type == REQ:
             # This future holds the last connection we sent a request to (or
@@ -349,12 +350,13 @@ class Socket(CompositeClosableAsyncObject):
 
         :returns: The frames.
         """
-        peer = await self._fair_get_in_peer()
-        result = peer.inbox.read_nowait()
+        with await self._read_lock:
+            peer = await self._fair_get_in_peer()
+            result = peer.inbox.read_nowait()
 
-        # Make sure we remove gone peers with empty inboxes.
-        if not peer.engine and peer.inbox.empty():
-            self._peers.remove(peer)
+            # Make sure we remove gone peers with empty inboxes.
+            if not peer.engine and peer.inbox.empty():
+                self._peers.remove(peer)
 
         return result
 

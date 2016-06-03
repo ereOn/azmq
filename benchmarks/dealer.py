@@ -1,6 +1,7 @@
 import asyncio
 import azmq
 import logging
+import struct
 import sys
 import threading
 import time
@@ -34,17 +35,22 @@ def measure(label, results):
         )
         results[label] = after - before
 
+messages = [
+    [struct.pack('!H', i) * 1024] * 10 for i in range(100)
+]
 ctx = azmq.Context()
 dealer = ctx.socket(azmq.DEALER)
 
 async def run():
-    dealer.connect(sys.argv[1])
+    for ep in sys.argv[1:]:
+        dealer.connect(ep)
 
-    for _ in range(1000):
-        await dealer.send_multipart([b'hello'])
+    for msg in messages:
+        await dealer.send_multipart(msg)
 
-    for _ in range(1000):
-        await dealer.recv_multipart()
+    await asyncio.gather(*[
+        dealer.recv_multipart() for _ in range(len(messages))
+    ])
 
 results = {}
 
@@ -54,19 +60,23 @@ with measure('azmq', results):
 ctx.close()
 loop.run_until_complete(ctx.wait_closed())
 
+logging.info("Waiting 2 seconds...")
+loop.run_until_complete(asyncio.sleep(2))
+
 ctx = zmq.Context()
 dealer = ctx.socket(zmq.DEALER)
 
 def run():
-    dealer.connect(sys.argv[1])
+    for ep in sys.argv[1:]:
+        dealer.connect(ep)
 
-    for _ in range(1000):
-        dealer.send_multipart([b'hello'])
+    for msg in messages:
+        dealer.send_multipart(msg)
 
-    for _ in range(1000):
+    for _ in range(len(messages)):
         dealer.recv_multipart()
 
 with measure('zmq', results):
     run()
 
-logger.info("azmq/zmq: %.2f", results['azmq'] / results['zmq'])
+logger.info("zmq/azmq: %.2f", results['azmq'] / results['zmq'])
