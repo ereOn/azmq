@@ -65,12 +65,15 @@ class Context(CompositeClosableAsyncObject):
     @cancel_on_closing
     async def _open_inproc_connection(self, path):
         server_future = self._inproc_servers.get(path)
+        server = None
 
-        if not server_future:
-            server_future = self._inproc_servers[path] = \
-                asyncio.Future(loop=self.loop)
+        while not server or server.closing:
+            if not server_future or server_future.cancelled():
+                server_future = self._inproc_servers[path] = \
+                    asyncio.Future(loop=self.loop)
 
-        await server_future
-        server = server_future.result()
+            await asyncio.shield(server_future)
+            server = server_future.result()
+            server_future = None
 
         return server.create_channel()

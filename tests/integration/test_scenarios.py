@@ -88,9 +88,9 @@ async def test_push_pull(event_loop, endpoint):
 
             while len(messages) < 2:
                 results = await onesec(multiplexer.recv_multipart())
-                messages.extend(x for _, x in results)
+                messages.extend(tuple(x) for _, x in results)
 
-            assert messages == [[b'a', b'1'], [b'b', b'2']]
+            assert set(messages) == {(b'a', b'1'), (b'b', b'2')}
 
         finally:
             push_socket.close()
@@ -146,7 +146,7 @@ async def test_push_pull_slow_connect(event_loop, endpoint):
 
 @use_all_transports
 @pytest.mark.asyncio
-async def test_push_pull_reconnect(event_loop, endpoint):
+async def test_push_pull_explicit_reconnect(event_loop, endpoint):
     async with azmq.Context() as context:
         push_socket = context.socket(azmq.PUSH)
         pull_socket = context.socket(azmq.PULL)
@@ -156,10 +156,38 @@ async def test_push_pull_reconnect(event_loop, endpoint):
             await onesec(push_socket.send_multipart([b'hello']))
 
             # The disconnection should cause the outgoing message to be lost.
-            push_socket.disconnect(endpoint)
+            await onesec(push_socket.disconnect(endpoint))
             push_socket.connect(endpoint)
 
             pull_socket.bind(endpoint)
+            await zerosec(pull_socket.recv_multipart())
+
+            await onesec(push_socket.send_multipart([b'hello']))
+            message = await onesec(pull_socket.recv_multipart())
+            assert message == [b'hello']
+
+        finally:
+            push_socket.close()
+            pull_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_push_pull_implicit_reconnect(event_loop, endpoint):
+    async with azmq.Context() as context:
+        push_socket = context.socket(azmq.PUSH)
+        pull_socket = context.socket(azmq.PULL)
+
+        try:
+            pull_socket.bind(endpoint)
+            push_socket.connect(endpoint)
+            await onesec(push_socket.send_multipart([b'hello']))
+
+            # The disconnection shouldn't cause the outgoing message to be
+            # lost as it happens on the other side.
+            await pull_socket.unbind(endpoint)
+            pull_socket.bind(endpoint)
+
             await zerosec(pull_socket.recv_multipart())
 
             await onesec(push_socket.send_multipart([b'hello']))

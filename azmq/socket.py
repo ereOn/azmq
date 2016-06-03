@@ -167,7 +167,7 @@ class Socket(CompositeClosableAsyncObject):
         elif url.scheme == 'inproc':
             engine = InprocClientEngine(
                 context=self.context,
-                path=url.path,
+                path=url.netloc,
                 attributes=self.attributes,
             )
         else:
@@ -190,13 +190,14 @@ class Socket(CompositeClosableAsyncObject):
         self._peers.append(peer)
         self.register_child(engine)
 
-    def disconnect(self, endpoint):
+    async def disconnect(self, endpoint):
         url = urlsplit(endpoint)
 
         engine = self._outgoing_engines.pop(url)
         peer = self._outgoing_peers.pop(engine)
         self._peers.remove(peer)
         engine.close()
+        await engine.wait_closed()
 
     def bind(self, endpoint):
         url = urlsplit(endpoint)
@@ -210,7 +211,7 @@ class Socket(CompositeClosableAsyncObject):
         elif url.scheme == 'inproc':
             engine = InprocServerEngine(
                 context=self.context,
-                path=url.path,
+                path=url.netloc,
                 attributes=self.attributes,
             )
         else:
@@ -225,11 +226,12 @@ class Socket(CompositeClosableAsyncObject):
         self._incoming_engines[url] = engine
         self.register_child(engine)
 
-    def unbind(self, endpoint):
+    async def unbind(self, endpoint):
         url = urlsplit(endpoint)
 
         engine = self._incoming_engines.pop(url)
         engine.close()
+        await engine.wait_closed()
 
     def register_connection(self, connection, engine):
         logger.debug("Registering new active connection: %s", connection)

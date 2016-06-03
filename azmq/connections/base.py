@@ -42,16 +42,6 @@ class BaseConnection(CompositeClosableAsyncObject):
         # guaranteed to stop, so we can just wait gracefully for it to happen.
         await self._run_task
         await self.unsubscribe_all()
-
-        # FIXME: This prevents recycling of inboxes/outboxes upon reconnect.
-        if self.outbox:
-            self.outbox.close()
-            await self.outbox.wait_closed()
-
-        if self.inbox:
-            self.inbox.close()
-            await self.inbox.wait_closed()
-
         await super().on_close(result)
 
         return result

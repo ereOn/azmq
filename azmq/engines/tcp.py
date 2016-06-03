@@ -22,9 +22,11 @@ class TCPClientEngine(BaseEngine):
     async def run(self):
         while not self.closing:
             try:
-                reader, writer = await asyncio.open_connection(
-                    host=self.host,
-                    port=self.port,
+                reader, writer = await self.await_until_closing(
+                    asyncio.open_connection(
+                        host=self.host,
+                        port=self.port,
+                    ),
                 )
 
             except OSError as ex:
@@ -57,8 +59,7 @@ class TCPClientEngine(BaseEngine):
                     self.port,
                 )
 
-            if not self.closing:
-                await asyncio.sleep(0.5)
+            # TODO: Implement exponentional back-off.
 
 
 class TCPServerEngine(BaseEngine):

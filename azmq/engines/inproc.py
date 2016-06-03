@@ -21,31 +21,33 @@ class InprocClientEngine(BaseEngine):
 
     async def run(self):
         while not self.closing:
-            channel = await self.context._open_inproc_connection(
-                path=self.path,
-            )
+            try:
+                channel = await self.await_until_closing(
+                    self.context._open_inproc_connection(
+                        path=self.path,
+                    ),
+                )
+            except Exception as ex:
+                logger.debug("Connection to %s failed: %s", self.path, ex)
+            else:
+                logger.debug(
+                    "Connection to %s established.",
+                    self.path,
+                )
 
-            logger.debug(
-                "Connection to %s established.",
-                self.path,
-            )
+                async with InprocConnection(
+                    channel=channel,
+                    attributes=self.attributes,
+                    on_ready=self.on_connection_ready.emit,
+                    on_lost=self.on_connection_lost.emit,
+                ) as connection:
+                    self.register_child(connection)
+                    await connection.wait_closed()
 
-            async with InprocConnection(
-                channel=channel,
-                attributes=self.attributes,
-                on_ready=self.on_connection_ready.emit,
-                on_lost=self.on_connection_lost.emit,
-            ) as connection:
-                self.register_child(connection)
-                await connection.wait_closed()
-
-            logger.debug(
-                "Connection to %s closed.",
-                self.path,
-            )
-
-            if not self.closing:
-                await asyncio.sleep(0.5)
+                logger.debug(
+                    "Connection to %s closed.",
+                    self.path,
+                )
 
 
 class InprocServerEngine(BaseEngine):
