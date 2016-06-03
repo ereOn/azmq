@@ -74,7 +74,7 @@ contained in these measurements. Only the sending and receive of messages.
 Details about the methodology can be found in the [benchmark](benchmark) folder.
 
 <p align="center">
-![graph](benchmark/azmq_pyzmq_time_spent_comparison.png)
+    <img src="benchmark/azmq_pyzmq_time_spent_comparison.png" alt="AZMQ-ZMQ time spent comparison graph">
 </p>
 
 From the benchmark, it seems that `azmq` is greatly outperformed (by a factor
