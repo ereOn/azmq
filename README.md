@@ -77,6 +77,10 @@ Details about the methodology can be found in the [benchmark](benchmark) folder.
     <img src="benchmark/azmq_pyzmq_time_spent_comparison.png" alt="AZMQ-ZMQ time spent comparison graph">
 </p>
 
+For a full-size, interactive version of the graph, [click
+here](https://plot.ly/~ereOn/18/azmq-pyzmq-time-spent-comparison/) thanks to
+[`plot.ly`](https://plot.ly).
+
 From the benchmark, it seems that `azmq` is greatly outperformed (by a factor
 of 10) for small messages by `pyzmq`. This is no surprise provided that:
 
