@@ -24,7 +24,7 @@ implementation.
 ## Current state and goals
 
 **AZMQ** is currently **NOT** in a production-ready state. The code has not
-been performance-tested let alone optimized. This will come later.
+been thoroughly performance-tested let alone optimized. This will come later.
 
 The main focus at the moment is to provide support for (checked items are
 implemented already):
@@ -60,6 +60,18 @@ close. Here is an **non-exhaustive** list of some differences in the APIs:
   class. The asyncio event-loop already gives you everything you need in terms
   of "polling" several ZMQ sockets at the same time. Actually, it's better
   because you are not limited to ZMQ sockets.
+
+## Performances
+
+AZMQ is fairly recent and only a few benchmarks where made to assert his (in)effectiveness.
+
+Here is a graph that shows the time spent by AZMQ and the reference
+implementation (pyzmq) when sending a bunch of messages of different sizes and
+waiting for a reply for each of those.
+
+Details about the methodology can be found in the [benchmark](benchmark) folder.
+
+![graph](benchmark/azmq_pyzmq_time_spent_comparison.png)
 
 ## Installation
 
