@@ -12,15 +12,12 @@ from contextlib import (
     contextmanager,
 )
 from concurrent.futures import Future
-from logging import getLogger
 from threading import (
     Event,
     Thread,
 )
 
 import azmq
-
-logger = getLogger()
 
 
 @pytest.yield_fixture
@@ -278,8 +275,6 @@ async def test_tcp_sub_socket(event_loop, socket_factory, connect_or_bind):
             frames = await asyncio.wait_for(socket.recv_multipart(), 1)
             assert frames == [b'a', b'message']
 
-        logger.info("Context closed for good")
-
 
 @pytest.mark.parametrize("link", [
     'bind',
@@ -326,11 +321,14 @@ async def test_tcp_push_socket(event_loop, socket_factory, connect_or_bind):
         message = pull_socket.recv_multipart()
         assert message == [b'hello', b'world']
 
-    with run_in_background(run):
+    with run_in_background(run) as event:
         async with azmq.Context(loop=event_loop) as context:
             socket = context.socket(azmq.PUSH)
             connect_or_bind(socket, 'tcp://127.0.0.1:3333')
             await socket.send_multipart([b'hello', b'world'])
+
+            while not event.is_set():
+                await asyncio.sleep(0.1)
 
 
 @pytest.mark.parametrize("link", [

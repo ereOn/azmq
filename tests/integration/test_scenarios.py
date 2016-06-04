@@ -173,30 +173,38 @@ async def test_push_pull_explicit_reconnect(event_loop, endpoint):
 
 @use_all_transports
 @pytest.mark.asyncio
-async def test_push_pull_implicit_reconnect(event_loop, endpoint):
+async def test_pub_sub_implicit_reconnect(event_loop, endpoint):
     async with azmq.Context() as context:
-        push_socket = context.socket(azmq.PUSH)
-        pull_socket = context.socket(azmq.PULL)
+        pub_socket = context.socket(azmq.PUB)
+        sub_socket = context.socket(azmq.SUB)
+        await sub_socket.subscribe(b'h')
 
         try:
-            pull_socket.bind(endpoint)
-            push_socket.connect(endpoint)
-            await onesec(push_socket.send_multipart([b'hello']))
+            pub_socket.bind(endpoint)
+            sub_socket.connect(endpoint)
 
-            # The disconnection shouldn't cause the outgoing message to be
-            # lost as it happens on the other side.
-            await pull_socket.unbind(endpoint)
-            pull_socket.bind(endpoint)
+            # Let's start a task that sends messages on the pub socket.
+            async def publish():
+                while True:
+                    await onesec(pub_socket.send_multipart([b'hello']))
 
-            await zerosec(pull_socket.recv_multipart())
+            publish_task = asyncio.ensure_future(publish())
 
-            await onesec(push_socket.send_multipart([b'hello']))
-            message = await onesec(pull_socket.recv_multipart())
-            assert message == [b'hello']
+            try:
+                message = await onesec(sub_socket.recv_multipart())
+                assert message == [b'hello']
+
+                await pub_socket.unbind(endpoint)
+                pub_socket.bind(endpoint)
+
+                message = await onesec(sub_socket.recv_multipart())
+                assert message == [b'hello']
+            finally:
+                publish_task.cancel()
 
         finally:
-            push_socket.close()
-            pull_socket.close()
+            pub_socket.close()
+            sub_socket.close()
 
 
 @use_all_transports
