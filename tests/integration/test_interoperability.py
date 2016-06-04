@@ -6,6 +6,9 @@ library).
 import asyncio
 import pytest
 import zmq
+import zmq.auth
+
+from zmq.auth.thread import ThreadAuthenticator
 
 from contextlib import (
     ExitStack,
@@ -19,12 +22,28 @@ from threading import (
 
 import azmq
 
+from azmq.crypto import curve_gen_keypair
+from azmq.connections.mechanisms import (
+    CurveClient,
+    CurveServer,
+)
+
 
 @pytest.yield_fixture
 def pyzmq_context():
     context = zmq.Context()
     yield context
     context.term()
+
+
+@pytest.yield_fixture
+def pyzmq_authenticator(pyzmq_context):
+    auth = ThreadAuthenticator(pyzmq_context)
+    auth.start()
+    auth.allow('127.0.0.1')
+    auth.configure_curve(domain='*', location=zmq.auth.CURVE_ALLOW_ANY)
+    yield
+    auth.stop()
 
 
 @pytest.yield_fixture
@@ -399,3 +418,81 @@ async def test_tcp_big_messages(event_loop, socket_factory, connect_or_bind):
             )
             frames = await asyncio.wait_for(socket.recv_multipart(), 1)
             assert frames == [b'3' * 500, b'4' * 100000]
+
+
+@pytest.mark.parametrize("link", [
+    'bind',
+    'connect',
+])
+@pytest.mark.asyncio
+async def test_tcp_socket_curve_server(
+    event_loop,
+    socket_factory,
+    connect_or_bind,
+):
+    rep_socket = socket_factory.create(zmq.REP)
+    cpublic, csecret = curve_gen_keypair()
+    rep_socket.curve_publickey = cpublic
+    rep_socket.curve_secretkey = csecret
+    public, secret = curve_gen_keypair()
+    rep_socket.curve_serverkey = public
+    connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        frames = rep_socket.recv_multipart()
+        assert frames == [b'my', b'question']
+        rep_socket.send_multipart([b'your', b'answer'])
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(
+                socket_type=azmq.REQ,
+                mechanism=CurveServer(
+                    public_key=public,
+                    secret_key=secret,
+                ),
+            )
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+            await asyncio.wait_for(
+                socket.send_multipart([b'my', b'question']),
+                1,
+            )
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            assert frames == [b'your', b'answer']
+
+
+@pytest.mark.parametrize("link", [
+    'bind',
+    'connect',
+])
+@pytest.mark.asyncio
+async def test_tcp_socket_curve_client(
+    event_loop,
+    socket_factory,
+    connect_or_bind,
+):
+    rep_socket = socket_factory.create(zmq.REP)
+    public, secret = curve_gen_keypair()
+    rep_socket.curve_secretkey = secret
+    rep_socket.curve_publickey = public
+    rep_socket.curve_server = True
+    connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        frames = rep_socket.recv_multipart()
+        assert frames == [b'my', b'question']
+        rep_socket.send_multipart([b'your', b'answer'])
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(
+                socket_type=azmq.REQ,
+                mechanism=CurveClient(server_key=public),
+            )
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+            await asyncio.wait_for(
+                socket.send_multipart([b'my', b'question']),
+                1,
+            )
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            assert frames == [b'your', b'answer']

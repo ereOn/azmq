@@ -33,6 +33,7 @@ from .errors import (
     UnsupportedSchemeError,
     InvalidOperation,
 )
+from .connections.mechanisms import Null
 from .engines.tcp import (
     TCPClientEngine,
     TCPServerEngine,
@@ -70,12 +71,13 @@ class Socket(CompositeClosableAsyncObject):
 
     This class is **NOT** thread-safe.
     """
-    def on_open(self, type, context):
+    def on_open(self, context, socket_type, identity=None, mechanism=None):
         super().on_open()
 
-        self.type = type
         self.context = context
-        self.identity = b''
+        self.socket_type = socket_type
+        self.identity = identity
+        self.mechanism = mechanism or Null()
         self.max_inbox_size = 0
         self.max_outbox_size = 0
         self._outgoing_engines = {}
@@ -88,60 +90,49 @@ class Socket(CompositeClosableAsyncObject):
         self._subscriptions = []
         self._read_lock = asyncio.Lock(loop=self.loop)
 
-        if self.type == REQ:
+        if self.socket_type == REQ:
             # This future holds the last connection we sent a request to (or
             # none, if no request was sent yet). This allows to start receiving
             # before we send.
             self._current_peer = asyncio.Future(loop=self.loop)
             self.recv_multipart = self._recv_req
             self.send_multipart = self._send_req
-        elif self.type == REP:
+        elif self.socket_type == REP:
             # This future holds the last connection we received a request from
             # (or none, if no request was received yet). This allows to start
             # receiving before we send.
             self._current_peer = asyncio.Future(loop=self.loop)
             self.recv_multipart = self._recv_rep
             self.send_multipart = self._send_rep
-        elif self.type == DEALER:
+        elif self.socket_type == DEALER:
             self.recv_multipart = self._recv_dealer
             self.send_multipart = self._send_dealer
-        elif self.type == ROUTER:
+        elif self.socket_type == ROUTER:
             self.recv_multipart = self._recv_router
             self.send_multipart = self._send_router
-        elif self.type == PUB:
+        elif self.socket_type == PUB:
             self.recv_multipart = self._no_recv
             self.send_multipart = self._send_pub
-        elif self.type == XPUB:
+        elif self.socket_type == XPUB:
             self.recv_multipart = self._recv_xpub
             self.send_multipart = self._send_pub  # This is not a typo.
-        elif self.type == SUB:
+        elif self.socket_type == SUB:
             self.recv_multipart = self._recv_sub
             self.send_multipart = self._no_send
-        elif self.type == XSUB:
+        elif self.socket_type == XSUB:
             self.recv_multipart = self._recv_sub  # This is not a typo.
             self.send_multipart = self._send_xsub
-        elif self.type == PUSH:
+        elif self.socket_type == PUSH:
             self.recv_multipart = self._no_recv
             self.send_multipart = self._send_push
-        elif self.type == PULL:
+        elif self.socket_type == PULL:
             self.recv_multipart = self._recv_pull
             self.send_multipart = self._no_send
-        elif self.type == PAIR:
+        elif self.socket_type == PAIR:
             self.recv_multipart = self._recv_pair
             self.send_multipart = self._send_pair
         else:
-            raise RuntimeError("Unsupported socket type: %r" % self.type)
-
-    @property
-    def attributes(self):
-        attributes = {
-            'socket_type': self.type,
-        }
-
-        if self.identity:
-            attributes['identity'] = self.identity
-
-        return attributes
+            raise ValueError("Unsupported socket type: %r" % self.socket_type)
 
     def create_inbox(self):
         return AsyncInbox(
@@ -162,13 +153,17 @@ class Socket(CompositeClosableAsyncObject):
             engine = TCPClientEngine(
                 host=url.hostname,
                 port=url.port,
-                attributes=self.attributes,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
             )
         elif url.scheme == 'inproc':
             engine = InprocClientEngine(
                 context=self.context,
                 path=url.netloc,
-                attributes=self.attributes,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
             )
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
@@ -206,13 +201,17 @@ class Socket(CompositeClosableAsyncObject):
             engine = TCPServerEngine(
                 host=url.hostname,
                 port=url.port,
-                attributes=self.attributes,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
             )
         elif url.scheme == 'inproc':
             engine = InprocServerEngine(
                 context=self.context,
                 path=url.netloc,
-                attributes=self.attributes,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
             )
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
@@ -253,15 +252,15 @@ class Socket(CompositeClosableAsyncObject):
 
         connection.set_queues(inbox=peer.inbox, outbox=peer.outbox)
 
-        if self.type == ROUTER and not connection.identity:
-            connection.identity = self.generate_identity()
+        if self.socket_type == ROUTER and not connection.remote_identity:
+            connection.remote_identity = self.generate_identity()
             logger.info(
                 "Peer did not specify an identity. Generated one for him "
                 "(%r).",
-                connection.identity,
+                connection.remote_identity,
             )
 
-        if self.type in {SUB, XSUB}:
+        if self.socket_type in {SUB, XSUB}:
             for topic in self._subscriptions:
                 asyncio.ensure_future(
                     connection.local_subscribe(topic),
@@ -271,7 +270,7 @@ class Socket(CompositeClosableAsyncObject):
     def unregister_connection(self, connection, engine):
         logger.debug("Unregistering inactive connection: %s", connection)
 
-        if self.type == XPUB and not connection.inbox.empty():
+        if self.socket_type == XPUB and not connection.inbox.empty():
             logger.debug(
                 "XPUB socket's inbox not empty: adding it back to the pool of "
                 "inboxes.",
@@ -514,7 +513,8 @@ class Socket(CompositeClosableAsyncObject):
         try:
             peer = next(
                 p for p in self._peers
-                if p.connection.identity == identity and not p.outbox.full()
+                if p.connection.remote_identity == identity and
+                not p.outbox.full()
             )
         except StopIteration:
             # We drop the messages as their is no suitable connection to write
@@ -527,19 +527,19 @@ class Socket(CompositeClosableAsyncObject):
     async def _recv_router(self):
         peer = await self._fair_get_in_peer()
         frames = peer.inbox.read_nowait()
-        frames.insert(0, peer.connection.identity)
+        frames.insert(0, peer.connection.remote_identity)
         return frames
 
     @cancel_on_closing
     async def _no_recv(self):
         raise AssertionError(
-            "A %s socket cannot receive." % self.type.decode(),
+            "A %s socket cannot receive." % self.socket_type.decode(),
         )
 
     @cancel_on_closing
     async def _no_send(self):
         raise AssertionError(
-            "A %s socket cannot send." % self.type.decode(),
+            "A %s socket cannot send." % self.socket_type.decode(),
         )
 
     @cancel_on_closing
@@ -619,9 +619,9 @@ class Socket(CompositeClosableAsyncObject):
 
         :param topic: The topic to subscribe to.
         """
-        if self.type not in {SUB, XSUB}:
+        if self.socket_type not in {SUB, XSUB}:
             raise AssertionError(
-                "A %s socket cannot subscribe." % self.type.decode(),
+                "A %s socket cannot subscribe." % self.socket_type.decode(),
             )
 
         # Do this **BEFORE** awaiting so that new connections created during
@@ -650,9 +650,9 @@ class Socket(CompositeClosableAsyncObject):
 
         :param topic: The topic to unsubscribe from.
         """
-        if self.type not in {SUB, XSUB}:
+        if self.socket_type not in {SUB, XSUB}:
             raise AssertionError(
-                "A %s socket cannot unsubscribe." % self.type.decode(),
+                "A %s socket cannot unsubscribe." % self.socket_type.decode(),
             )
 
         # Do this **BEFORE** awaiting so that new connections created during

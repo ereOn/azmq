@@ -10,27 +10,9 @@ import struct
 from ..constants import (
     PUB,
     XPUB,
-    LEGAL_COMBINATIONS,
 )
 from ..errors import ProtocolError
 from ..log import logger
-from ..messaging import (
-    Frame,
-    dump_ready_command,
-    load_ping_command,
-    load_pong_command,
-    load_ready_command,
-    read_command,
-    read_first_greeting,
-    read_second_greeting,
-    read_traffic,
-    write_command,
-    write_first_greeting,
-    write_frames,
-    write_ping_command,
-    write_pong_command,
-    write_second_greeting,
-)
 
 from ..common import (
     AsyncPeriodicTimer,
@@ -44,21 +26,8 @@ class StreamConnection(BaseConnection):
     """
     Implements a ZMTP connection that works on a pair of streams.
     """
-    def __init__(
-        self,
-        reader,
-        writer,
-        attributes,
-        on_ready,
-        on_lost,
-        **kwargs
-    ):
-        super().__init__(
-            attributes=attributes,
-            on_ready=on_ready,
-            on_lost=on_lost,
-            **kwargs,
-        )
+    def __init__(self, *, reader, writer, **kwargs):
+        super().__init__(**kwargs)
         self.reader = reader
         self.writer = writer
         self.writer.transport.get_extra_info('socket').setsockopt(
@@ -74,6 +43,7 @@ class StreamConnection(BaseConnection):
         self._base_ping_context = random.getrandbits(32)
         self._pending_ping_contexts = set()
         self._max_pending_pings = 3
+        self._nonce = 0
 
     async def on_close(self, result):
         try:
@@ -94,78 +64,20 @@ class StreamConnection(BaseConnection):
             self.close()
 
     async def on_run(self):
-        write_first_greeting(self.writer, major_version=3)
-        major_version = await read_first_greeting(self.reader)
-
-        if major_version < 3:
-            logger.warning(
-                "Unsupported peer's major version (%s). Disconnecting.",
-                major_version,
-            )
-            return
-
-        write_second_greeting(
-            self.writer,
-            minor_version=1,
-            mechanism=b'NULL',
-            as_server=False,
+        self.version = await self._greeting(
+            reader=self.reader,
+            writer=self.writer,
+            version=(3, 1),
+            mechanism=self.mechanism.name,
+            as_server=self.mechanism.as_server,
         )
-        minor_version, mechanism, as_server = await read_second_greeting(
-            self.reader,
+
+        metadata = await self.mechanism.negotiate(
+            reader=self.reader,
+            writer=self.writer,
+            metadata=self.get_metadata(),
         )
-        logger.debug(
-            "Peer is using version %s.%s with the '%s' authentication "
-            "mechanism.",
-            major_version,
-            minor_version,
-            mechanism.decode(),
-        )
-        self.version = (major_version, minor_version)
-
-        if mechanism == b'NULL':
-            write_command(
-                self.writer,
-                b'READY',
-                dump_ready_command({
-                    b'Socket-Type': self.local_socket_type,
-                    b'Identity': self.local_identity,
-                }),
-            )
-            command = await read_command(self.reader)
-
-            if command.name != b'READY':
-                logger.warning("Unexpected command: %s.", command.name)
-                return
-
-            peer_attributes = load_ready_command(command.data)
-            logger.debug("Peer attributes: %s", peer_attributes)
-
-            if (
-                self.local_socket_type,
-                peer_attributes[b'socket-type'],
-            ) not in LEGAL_COMBINATIONS:
-                logger.warning(
-                    "Incompatible socket types (%s <-> %s). Killing the "
-                    "connection.",
-                    self.local_socket_type.decode(),
-                    peer_attributes[b'socket-type'].decode(),
-                )
-                return
-
-            self.identity = peer_attributes.get(b'identity', None)
-
-            if self.identity:
-                # Peer-specified identities can't start with b'\x00'.
-                if not self.identity[0]:
-                    logger.warning(
-                        "Peer specified an invalid identity (%r). Killing the "
-                        "connection.",
-                        self.identity,
-                    )
-                    return
-        else:
-            logger.warning("Unsupported mechanism: %s.", mechanism)
-            return
+        self.set_remote_metadata(metadata)
 
         logger.debug("Connection is now ready to read and write.")
         self.on_ready(self)
@@ -220,72 +132,166 @@ class StreamConnection(BaseConnection):
 
         # Flush out the unset outgoing messages before we exit.
         while not self.outbox.empty():
-            write_frames(self.writer, self.outbox.read_nowait())
+            self.mechanism.write(self.writer, self.outbox.read_nowait())
 
     async def read(self):
         frames = []
+        inbox = self.inbox
+        read = self.mechanism.read
 
         while not self.closing:
-            traffic = await read_traffic(self.reader)
+            frame, last = await read(
+                reader=self.reader,
+                on_command=self._process_command,
+            )
 
             if self._expect_ping_timeout:
                 self._expect_ping_timeout.revive()
 
-            if isinstance(traffic, Frame):
-                # ZMTP <=3.0 will send frames for subscriptions and
-                # unsubscriptions.
-                if self.local_socket_type in {PUB, XPUB}:
-                    type_ = traffic.body[0]
+            # ZMTP <=3.0 will send frames for subscriptions and
+            # unsubscriptions.
+            if self.socket_type in {PUB, XPUB}:
+                type_ = frame[0]
 
-                    if type_ == 1:
-                        await self.subscribe(traffic.body[1:])
-                    elif type_ == 0:
-                        await self.unsubscribe(traffic.body[1:])
-                else:
-                    frames.append(traffic)
-
-                    if traffic.last:
-                        if not self._discard_incoming_messages:
-                            await self.inbox.write(frames)
-
-                        frames = []
+                if type_ == 1:
+                    await self.subscribe(frame[1:])
+                elif type_ == 0:
+                    await self.unsubscribe(frame[1:])
             else:
-                if self.version >= (3, 1):
-                    if traffic.name == b'SUBSCRIBE':
-                        await self.subscribe(traffic.data)
-                    elif traffic.name == b'CANCEL':
-                        await self.unsubscribe(traffic.data)
-                    elif traffic.name == b'PING':
-                        ttl, ping_ctx = load_ping_command(traffic.data)
-                        logger.debug("Received PING (%r, %s).", ping_ctx, ttl)
-                        self._expect_ping_timeout.revive()
-                        self._send_pong(ping_ctx)
-                    elif traffic.name == b'PONG':
-                        ping_ctx = load_pong_command(traffic.data)
-                        logger.debug("Received PONG (%r).", ping_ctx)
-                        self._pending_ping_contexts.remove(ping_ctx)
+                frames.append(frame)
+
+                if last:
+                    if not self._discard_incoming_messages:
+                        await inbox.write(frames)
+
+                    frames = []
 
     async def write(self):
         outbox = self.outbox
+        write = self.mechanism.write
 
         while not self.closing:
             frames = await outbox.read()
-            write_frames(self.writer, frames)
+            write(writer=self.writer, frames=frames)
 
             if self._send_ping_timer:
                 self._send_ping_timer.reset()
 
+    # Private methods.
+
+    @staticmethod
+    def _write_first_greeting(writer, major_version):
+        signature = b'\xff\x00\x00\x00\x00\x00\x00\x00\x00\x7f'
+        writer.write(signature)
+        writer.write(bytes([major_version]))
+
+    @staticmethod
+    async def _read_first_greeting(reader):
+        data = await reader.readexactly(10)
+
+        if data[0] != 0xff:
+            raise ProtocolError("Invalid signature", fatal=True)
+
+        if data[-1] != 0x7f:
+            raise ProtocolError("Invalid signature", fatal=True)
+
+        major_version = struct.unpack('B', await reader.readexactly(1))[0]
+
+        if major_version < 3:
+            raise ProtocolError(
+                "Unsupported peer major version (%s)." % major_version,
+                fatal=True,
+            )
+
+        return major_version
+
+    @staticmethod
+    def _write_second_greeting(writer, minor_version, mechanism, as_server):
+        filler = b'\x00' * 31
+        writer.write(bytes([minor_version]))
+        writer.write(mechanism[:20].ljust(20, b'\x00'))
+        writer.write(b'\x01' if as_server else b'\x00')
+        writer.write(filler)
+
+    @staticmethod
+    async def _read_second_greeting(reader):
+        version = struct.unpack('B', await reader.readexactly(1))[0]
+        mechanism = (await reader.readexactly(20)).rstrip(b'\x00')
+        as_server = bool(struct.unpack('B', await reader.readexactly(1))[0])
+
+        # Next is the filler. We don't care about it.
+        await reader.readexactly(31)
+
+        return version, mechanism, as_server
+
+    @classmethod
+    async def _greeting(cls, writer, reader, version, mechanism, as_server):
+        logger.debug(
+            "Using version %s.%s with the '%s' authentication "
+            "mechanism as %s.",
+            version[0],
+            version[1],
+            mechanism.decode(),
+            'server' if as_server else 'client',
+        )
+        cls._write_first_greeting(
+            writer=writer,
+            major_version=version[0],
+        )
+        remote_major_version = await cls._read_first_greeting(reader=reader)
+        cls._write_second_greeting(
+            writer=writer,
+            minor_version=version[1],
+            mechanism=mechanism,
+            as_server=as_server,
+        )
+        (
+            remote_minor_version,
+            remote_mechanism,
+            remote_as_server,
+        ) = await cls._read_second_greeting(reader=reader)
+
+        logger.debug(
+            "Peer is using version %s.%s with the '%s' authentication "
+            "mechanism as %s.",
+            remote_major_version,
+            remote_minor_version,
+            remote_mechanism.decode(),
+            'server' if remote_as_server else 'client',
+        )
+
+        if remote_mechanism != mechanism:
+            raise ProtocolError(
+                "Incompatible mechanisms: %s == %s" % (
+                    remote_mechanism,
+                    mechanism,
+                ),
+                fatal=True,
+            )
+
+        remote_version = (remote_major_version, remote_minor_version)
+
+        return min(version, remote_version)
+
+    async def _process_command(self, name, data):
+        if self.version >= (3, 1):
+            if name == b'SUBSCRIBE':
+                await self.subscribe(data)
+            elif name == b'CANCEL':
+                await self.unsubscribe(data)
+            elif name == b'PING':
+                self._process_ping_command(data)
+            elif name == b'PONG':
+                self._process_pong_command(data)
+
     def _generate_ping_context(self):
-        """
-        Generate a unique but random ping context.
-        """
-        ping_context = struct.pack('!I', self._base_ping_context)
+        ping_ctx = struct.pack('!I', self._base_ping_context)
         self._base_ping_context += 1
 
         if self._base_ping_context >= 2 ** 32:
             self._base_ping_context = 0
 
-        return ping_context
+        return ping_ctx
 
     async def _send_ping(self):
         if len(self._pending_ping_contexts) < self._max_pending_pings:
@@ -296,12 +302,24 @@ class StreamConnection(BaseConnection):
                 self.ping_timeout,
             )
             self._pending_ping_contexts.add(ping_ctx)
-            write_ping_command(
+            self.mechanism.write_command(
                 self.writer,
-                self.ping_timeout,
+                b'PING',
+                struct.pack('!H', int(self.ping_timeout * 10)),
                 ping_ctx,
             )
 
     def _send_pong(self, ping_ctx):
         logger.debug("Sending PONG (%r).", ping_ctx)
-        write_pong_command(self.writer, ping_ctx)
+        self.mechanism.write_command(self.writer, b'PONG', ping_ctx)
+
+    def _process_ping_command(self, data):
+        ttl = struct.unpack('!H', data[:2])[0]
+        ping_ctx = data[2:]
+        logger.debug("Received PING (%r, %s).", ping_ctx, ttl)
+        self._expect_ping_timeout.revive()
+        self._send_pong(ping_ctx)
+
+    def _process_pong_command(self, ping_ctx):
+        logger.debug("Received PONG (%r).", ping_ctx)
+        self._pending_ping_contexts.remove(ping_ctx)

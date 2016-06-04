@@ -11,12 +11,11 @@ from .base import BaseEngine
 
 
 class InprocClientEngine(BaseEngine):
-    def on_open(self, context, path, attributes):
+    def on_open(self, context, path):
         super().on_open()
 
         self.context = context
         self.path = path
-        self.attributes = attributes
         self.run_task = asyncio.ensure_future(self.run())
 
     async def run(self):
@@ -37,7 +36,9 @@ class InprocClientEngine(BaseEngine):
 
                 async with InprocConnection(
                     channel=channel,
-                    attributes=self.attributes,
+                    socket_type=self.socket_type,
+                    identity=self.identity,
+                    mechanism=self.mechanism,
                     on_ready=self.on_connection_ready.emit,
                     on_lost=self.on_connection_lost.emit,
                 ) as connection:
@@ -51,12 +52,11 @@ class InprocClientEngine(BaseEngine):
 
 
 class InprocServerEngine(BaseEngine):
-    def on_open(self, context, path, attributes):
+    def on_open(self, context, path):
         super().on_open()
 
         self.context = context
         self.path = path
-        self.attributes = attributes
         self.run_task = asyncio.ensure_future(self.run())
 
     async def run(self):
@@ -76,7 +76,9 @@ class InprocServerEngine(BaseEngine):
 
         async with InprocConnection(
             channel=channel,
-            attributes=self.attributes,
+            socket_type=self.socket_type,
+            identity=self.identity,
+            mechanism=self.mechanism,
             on_ready=self.on_connection_ready.emit,
             on_lost=self.on_connection_lost.emit,
         ) as connection:

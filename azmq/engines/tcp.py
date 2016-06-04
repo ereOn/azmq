@@ -11,12 +11,11 @@ from .base import BaseEngine
 
 
 class TCPClientEngine(BaseEngine):
-    def on_open(self, host, port, attributes):
-        super().on_open()
+    def on_open(self, *, host, port, **kwargs):
+        super().on_open(**kwargs)
 
         self.host = host
         self.port = port
-        self.attributes = attributes
         self.run_task = asyncio.ensure_future(self.run())
 
     async def run(self):
@@ -46,7 +45,9 @@ class TCPClientEngine(BaseEngine):
                 async with StreamConnection(
                     reader=reader,
                     writer=writer,
-                    attributes=self.attributes,
+                    socket_type=self.socket_type,
+                    identity=self.identity,
+                    mechanism=self.mechanism,
                     on_ready=self.on_connection_ready.emit,
                     on_lost=self.on_connection_lost.emit,
                 ) as connection:
@@ -63,12 +64,11 @@ class TCPClientEngine(BaseEngine):
 
 
 class TCPServerEngine(BaseEngine):
-    def on_open(self, host, port, attributes):
-        super().on_open()
+    def on_open(self, *, host, port, **kwargs):
+        super().on_open(**kwargs)
 
         self.host = host
         self.port = port
-        self.attributes = attributes
         self.run_task = asyncio.ensure_future(self.run())
 
     async def run(self):
@@ -92,7 +92,9 @@ class TCPServerEngine(BaseEngine):
         async with StreamConnection(
             reader=reader,
             writer=writer,
-            attributes=self.attributes,
+            socket_type=self.socket_type,
+            identity=self.identity,
+            mechanism=self.mechanism,
             on_ready=self.on_connection_ready.emit,
             on_lost=self.on_connection_lost.emit,
         ) as connection:

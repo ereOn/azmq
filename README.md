@@ -48,6 +48,12 @@ implemented already):
   * [x] Inproc
   * [ ] UNIX sockets
 
+- Those mechanisms:
+  * [x] NULL
+  * [ ] PLAIN
+  * [x] CURVE
+  * [ ] ZAP
+
 Also, the intended API tries to be close to the one of pyzmq, but not too
 close. Here is an **non-exhaustive** list of some differences in the APIs:
 

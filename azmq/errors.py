@@ -15,7 +15,9 @@ class UnsupportedSchemeError(AZMQError):
 
 
 class ProtocolError(AZMQError):
-    pass
+    def __init__(self, msg, fatal=False):
+        super().__init__(msg)
+        self.fatal = fatal
 
 
 class InvalidOperation(AZMQError):

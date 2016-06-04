@@ -7,7 +7,6 @@ import asyncio
 from ..constants import (
     PUB,
     XPUB,
-    LEGAL_COMBINATIONS,
 )
 from ..log import logger
 from .base import BaseConnection
@@ -20,17 +19,9 @@ class InprocConnection(BaseConnection):
     def __init__(
         self,
         channel,
-        attributes,
-        on_ready,
-        on_lost,
         **kwargs
     ):
-        super().__init__(
-            attributes=attributes,
-            on_ready=on_ready,
-            on_lost=on_lost,
-            **kwargs,
-        )
+        super().__init__(**kwargs)
         self.channel = channel
 
     async def run(self):
@@ -42,45 +33,9 @@ class InprocConnection(BaseConnection):
             self.close()
 
     async def on_run(self):
-        await self.channel.write(b'NULL')
-        mechanism = await self.channel.read()
-
-        if mechanism == b'NULL':
-            await self.channel.write(
-                {
-                    b'socket-type': self.local_socket_type,
-                    b'identity': self.local_identity,
-                },
-            )
-            peer_attributes = await self.channel.read()
-            logger.debug("Peer attributes: %s", peer_attributes)
-
-            if (
-                self.local_socket_type,
-                peer_attributes[b'socket-type'],
-            ) not in LEGAL_COMBINATIONS:
-                logger.warning(
-                    "Incompatible socket types (%s <-> %s). Killing the "
-                    "connection.",
-                    self.local_socket_type.decode(),
-                    peer_attributes[b'socket-type'].decode(),
-                )
-                return
-
-            self.identity = peer_attributes.get(b'identity', None)
-
-            if self.identity:
-                # Peer-specified identities can't start with b'\x00'.
-                if not self.identity[0]:
-                    logger.warning(
-                        "Peer specified an invalid identity (%r). Killing the "
-                        "connection.",
-                        self.identity,
-                    )
-                    return
-        else:
-            logger.warning("Unsupported mechanism: %s.", mechanism)
-            return
+        await self.channel.write(self.get_metadata())
+        metadata = await self.channel.read()
+        self.set_remote_metadata(metadata)
 
         logger.debug("Connection is now ready to read and write.")
         self.on_ready(self)
@@ -127,7 +82,7 @@ class InprocConnection(BaseConnection):
         while not self.closing:
             frames = await self.channel.read()
 
-            if self.local_socket_type in {PUB, XPUB}:
+            if self.socket_type in {PUB, XPUB}:
                 type_ = frames[0][0]
 
                 if type_ == 1:

@@ -8,8 +8,11 @@ from ..common import CompositeClosableAsyncObject
 
 
 class BaseEngine(CompositeClosableAsyncObject):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *, socket_type, identity, mechanism, **kwargs):
+        super().__init__(**kwargs)
+        self.socket_type = socket_type
+        self.identity = identity
+        self.mechanism = mechanism
         self.on_connection_ready = Signal()
         self.on_connection_lost = Signal()
 

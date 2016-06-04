@@ -10,7 +10,11 @@ from ..common import (
     CompositeClosableAsyncObject,
     cancel_on_closing,
 )
-from ..constants import XPUB
+from ..constants import (
+    LEGAL_COMBINATIONS,
+    XPUB,
+)
+from ..errors import ProtocolError
 from ..log import logger
 
 
@@ -20,19 +24,27 @@ class BaseConnection(CompositeClosableAsyncObject):
     """
     def __init__(
         self,
-        attributes,
+        socket_type,
+        identity,
+        mechanism,
         on_ready,
         on_lost,
         **kwargs
     ):
+        assert socket_type, "A socket-type must be specified."
+
         super().__init__(**kwargs)
-        self.inbox = None
-        self.outbox = None
-        self.identity = None
-        self.local_socket_type = attributes['socket_type']
-        self.local_identity = attributes.get('identity', b'')
+        self.socket_type = socket_type
+        self.identity = identity
+        self.mechanism = mechanism()
         self.on_ready = on_ready
         self.on_lost = on_lost
+
+        self.remote_socket_type = None
+        self.remote_identity = None
+
+        self.inbox = None
+        self.outbox = None
         self.subscriptions = []
         self._discard_incoming_messages = False
         self._run_task = asyncio.ensure_future(self.run(), loop=self.loop)
@@ -45,6 +57,42 @@ class BaseConnection(CompositeClosableAsyncObject):
         await super().on_close(result)
 
         return result
+
+    def get_metadata(self):
+        metadata = {
+            b'Socket-Type': self.socket_type,
+        }
+
+        if self.identity:
+            metadata[b'Identity'] = self.identity
+
+        return metadata
+
+    def set_remote_metadata(self, metadata):
+        logger.debug("Peer metadata: %s", metadata)
+
+        for key, value in metadata.items():
+            key = key.lower()
+
+            if key == b'identity':
+                # Peer-specified identities can't start with b'\x00'.
+                if value and not value[0]:
+                    raise ProtocolError(
+                        "Peer specified an invalid identity (%r)." % value,
+                        fatal=True,
+                    )
+
+                self.remote_identity = value
+            elif key == b'socket-type':
+                self.remote_socket_type = value
+
+        pair = (self.socket_type, self.remote_socket_type)
+
+        if pair not in LEGAL_COMBINATIONS:
+            raise ProtocolError(
+                "Incompatible socket types (%s <-> %s)." % pair,
+                fatal=True,
+            )
 
     def set_queues(self, inbox, outbox):
         self.inbox = inbox
@@ -90,7 +138,7 @@ class BaseConnection(CompositeClosableAsyncObject):
         logger.debug("Peer subscribed to topic %r.", topic)
 
         # XPUB sockets must inform the application of the subscription.
-        if self.local_socket_type == XPUB:
+        if self.socket_type == XPUB:
             if self.inbox:
                 await self.inbox.write([b'\x01' + topic])
 
@@ -102,7 +150,7 @@ class BaseConnection(CompositeClosableAsyncObject):
             pass
         else:
             # XPUB sockets must inform the application of the unsubscription.
-            if self.local_socket_type == XPUB:
+            if self.socket_type == XPUB:
                 if self.inbox:
                     await self.inbox.write([b'\x00' + topic])
 
