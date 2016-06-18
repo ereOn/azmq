@@ -4,6 +4,8 @@ python:
 sudo: false
 addons:
   apt:
+    sources:
+    - universe
     packages:
     - libsodium13
 install:
