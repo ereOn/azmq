@@ -10,10 +10,10 @@ before_script:
 - tar zxvf libsodium-1.0.10.tar.gz
 - cd libsodium-1.0.10
 - ./autogen.sh
-- ./configure --prefix=~/libsodium && make check
+- ./configure --prefix=$HOME/libsodium && make check
 - make install
 script:
-- LD_LIBRARY_PATH=~/libsodium/lib tox
+- LD_LIBRARY_PATH=$HOME/libsodium/lib tox
 after_success:
 - coveralls
 notifications:
