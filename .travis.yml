@@ -5,7 +5,7 @@ sudo: false
 addons:
   apt:
     sources:
-    - universe
+    - chris-lea/libsodium
     packages:
     - libsodium13
 install:
