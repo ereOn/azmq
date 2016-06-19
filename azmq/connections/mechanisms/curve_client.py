@@ -26,7 +26,12 @@ from .base import Mechanism
 
 
 class CurveClient(object):
-    def __init__(self, server_key, public_key=None, secret_key=None):
+    def __init__(
+        self,
+        server_key,
+        public_key=None,
+        secret_key=None,
+    ):
         self.set_permanent_server_key(server_key)
 
         if public_key or secret_key:
@@ -88,6 +93,8 @@ class CurveClientMechanism(Mechanism):
     ]
 
     def __init__(self, server_key, public_key, secret_key):
+        super().__init__()
+
         # Permanent keys.
         self.c = public_key  # The public permanent key.
         self.s = secret_key  # The secret permanent key.
@@ -195,7 +202,7 @@ class CurveClientMechanism(Mechanism):
         )
         return self._buffer_to_metadata(plain)
 
-    async def negotiate(self, writer, reader, metadata):
+    async def negotiate(self, writer, reader, metadata, address, zap_client):
         logger.debug("Negotiating CURVE parameters as client.")
 
         self._write_curve_hello(writer=writer)
@@ -213,7 +220,7 @@ class CurveClientMechanism(Mechanism):
         )
         self.nonce += 1
 
-        return await self._read_curve_ready(reader=reader)
+        return await self._read_curve_ready(reader=reader), None, None
 
     def write(self, writer, frames):
         kp = self.kp

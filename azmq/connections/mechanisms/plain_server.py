@@ -45,7 +45,7 @@ class PlainServerMechanism(Mechanism):
             buffers=cls._metadata_to_buffers(metadata)
         )
 
-    async def negotiate(self, writer, reader, metadata):
+    async def negotiate(self, writer, reader, metadata, address, zap_client):
         logger.debug("Negotiating PLAIN parameters as server.")
 
         # Wait for a HELLO.
@@ -55,6 +55,20 @@ class PlainServerMechanism(Mechanism):
 
         remote_metadata = await self._read_plain_initiate(reader=reader)
 
+        if zap_client:
+            user_id, auth_metadata = await zap_client.authenticate(
+                domain='',
+                address=address,
+                identity=remote_metadata.get(b'identity', b''),
+                mechanism=self.name,
+                credentials=[
+                    username,
+                    password,
+                ],
+            )
+        else:
+            user_id, auth_metadata = None, None
+
         self._write_plain_ready(writer=writer, metadata=metadata)
 
-        return remote_metadata
+        return remote_metadata, user_id, auth_metadata

@@ -559,8 +559,8 @@ async def test_tcp_socket_plain_client(
             socket = context.socket(
                 socket_type=azmq.REQ,
                 mechanism=PlainClient(
-                    username=b'username',
-                    password=b'password',
+                    username='username',
+                    password='password',
                 ),
             )
             connect_or_bind(socket, 'tcp://127.0.0.1:3333')

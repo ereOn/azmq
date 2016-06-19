@@ -32,12 +32,24 @@ class NullMechanism(Mechanism):
         )
         return cls._buffer_to_metadata(buffer=raw_metadata)
 
-    @classmethod
-    async def negotiate(cls, writer, reader, metadata):
+    async def negotiate(self, writer, reader, metadata, address, zap_client):
         logger.debug("Negotiating NULL parameters.")
 
-        cls._write_null_ready(
+        self._write_null_ready(
             writer=writer,
             metadata=metadata,
         )
-        return await cls._read_null_ready(reader=reader)
+        remote_metadata = await self._read_null_ready(reader=reader)
+
+        if zap_client:
+            user_id, auth_metadata = await zap_client.authenticate(
+                domain='',
+                address=address,
+                identity=remote_metadata.get(b'identity', b''),
+                mechanism=self.name,
+                credentials=[],
+            )
+        else:
+            user_id, auth_metadata = None, None
+
+        return remote_metadata, user_id, auth_metadata

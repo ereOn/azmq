@@ -70,6 +70,8 @@ class CurveServerMechanism(Mechanism):
     ]
 
     def __init__(self, public_key, secret_key):
+        super().__init__()
+
         # Permanent keys.
         self.c = public_key  # The public permanent key.
         self.s = secret_key  # The secret permanent key.
@@ -217,7 +219,7 @@ class CurveServerMechanism(Mechanism):
             buffers=[nonce, box],
         )
 
-    async def negotiate(self, writer, reader, metadata):
+    async def negotiate(self, writer, reader, metadata, address, zap_client):
         logger.debug("Negotiating CURVE parameters as server.")
 
         # Wait for a HELLO.
@@ -245,7 +247,20 @@ class CurveServerMechanism(Mechanism):
                 "seconds. Aborting connection.",
             )
 
-        metadata = self._buffer_to_metadata(buffer=raw_metadata)
+        remote_metadata = self._buffer_to_metadata(buffer=raw_metadata)
+
+        if zap_client:
+            user_id, auth_metadata = await zap_client.authenticate(
+                domain='',
+                address=address,
+                identity=remote_metadata.get(b'identity', b''),
+                mechanism=self.name,
+                credentials=[
+                    self.rc,  # The remote permanent public key.
+                ],
+            )
+        else:
+            user_id, auth_metadata = None, None
 
         self._write_curve_ready(
             writer=writer,
@@ -253,7 +268,7 @@ class CurveServerMechanism(Mechanism):
         )
         self.nonce += 1
 
-        return metadata
+        return remote_metadata, user_id, auth_metadata
 
     def write(self, writer, frames):
         kp = self.kp

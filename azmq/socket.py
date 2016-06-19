@@ -153,6 +153,7 @@ class Socket(CompositeClosableAsyncObject):
             engine = TCPClientEngine(
                 host=url.hostname,
                 port=url.port,
+                zap_client=self.context.zap_client,
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,
@@ -201,6 +202,7 @@ class Socket(CompositeClosableAsyncObject):
             engine = TCPServerEngine(
                 host=url.hostname,
                 port=url.port,
+                zap_client=self.context.zap_client,
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,

@@ -13,8 +13,9 @@ from ..common import (
 
 
 class Channel(ClosableAsyncObject):
-    def on_open(self):
+    def on_open(self, path):
         super().on_open()
+        self._path = path
         self._linked_channel = None
         self._inbox = AsyncInbox(loop=self.loop)
 
@@ -27,6 +28,9 @@ class Channel(ClosableAsyncObject):
             self._linked_channel = None
 
         await self._inbox.wait_closed()
+
+    def __repr__(self):
+        return 'Channel(path=%r)' % self._path
 
     def link(self, channel):
         self._linked_channel = channel
@@ -54,13 +58,13 @@ class InprocServer(CompositeClosableAsyncObject):
 
         await super().on_close(result)
 
-    def create_channel(self):
+    def create_channel(self, path):
         if self.closing:
             raise asyncio.CancelledError()
 
-        left = Channel(loop=self.loop)
+        left = Channel(path=path, loop=self.loop)
         self.register_child(left)
-        right = Channel(loop=self.loop)
+        right = Channel(path=path, loop=self.loop)
         self.register_child(right)
         left.link(right)
 

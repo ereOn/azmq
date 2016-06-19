@@ -11,11 +11,12 @@ from .base import BaseEngine
 
 
 class TCPClientEngine(BaseEngine):
-    def on_open(self, *, host, port, **kwargs):
+    def on_open(self, *, host, port, zap_client, **kwargs):
         super().on_open(**kwargs)
 
         self.host = host
         self.port = port
+        self.zap_client = zap_client
         self.run_task = asyncio.ensure_future(self.run())
 
     async def run(self):
@@ -45,6 +46,7 @@ class TCPClientEngine(BaseEngine):
                 async with StreamConnection(
                     reader=reader,
                     writer=writer,
+                    zap_client=self.zap_client,
                     socket_type=self.socket_type,
                     identity=self.identity,
                     mechanism=self.mechanism,
@@ -64,11 +66,12 @@ class TCPClientEngine(BaseEngine):
 
 
 class TCPServerEngine(BaseEngine):
-    def on_open(self, *, host, port, **kwargs):
+    def on_open(self, *, host, port, zap_client, **kwargs):
         super().on_open(**kwargs)
 
         self.host = host
         self.port = port
+        self.zap_client = zap_client
         self.run_task = asyncio.ensure_future(self.run())
 
     async def run(self):
@@ -92,6 +95,7 @@ class TCPServerEngine(BaseEngine):
         async with StreamConnection(
             reader=reader,
             writer=writer,
+            zap_client=self.zap_client,
             socket_type=self.socket_type,
             identity=self.identity,
             mechanism=self.mechanism,

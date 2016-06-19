@@ -34,6 +34,7 @@ class PlainClientMechanism(Mechanism):
     ]
 
     def __init__(self, username, password):
+        super().__init__()
         self.username = username
         self.password = password
 
@@ -43,9 +44,9 @@ class PlainClientMechanism(Mechanism):
             name=b'HELLO',
             buffers=[
                 struct.pack('B', len(self.username)),
-                self.username,
+                self.username.encode('utf-8'),
                 struct.pack('B', len(self.password)),
-                self.password,
+                self.password.encode('utf-8'),
             ],
         )
 
@@ -65,10 +66,10 @@ class PlainClientMechanism(Mechanism):
         )
         return cls._buffer_to_metadata(buffer=raw_metadata)
 
-    async def negotiate(self, writer, reader, metadata):
+    async def negotiate(self, writer, reader, metadata, address, zap_client):
         logger.debug("Negotiating PLAIN parameters as client.")
 
         self._write_plain_hello(writer=writer)
         await self._expect_command(reader=reader, name=b'WELCOME')
         self._write_plain_initiate(writer=writer, metadata=metadata)
-        return await self._read_plain_ready(reader=reader)
+        return await self._read_plain_ready(reader=reader), None, None

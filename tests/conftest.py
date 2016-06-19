@@ -24,3 +24,13 @@ def event_loop():
         loop.run_until_complete(asyncio.wait_for(asyncio.wait(tasks), 5))
 
     loop.close()
+
+
+use_all_transports = pytest.mark.parametrize('endpoint', [
+    'inproc://mypath',
+    'tcp://127.0.0.1:3333',
+])
+"""
+A decorator that causes the test scenario to run once with each of the support
+transports.
+"""

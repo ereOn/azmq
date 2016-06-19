@@ -10,14 +10,7 @@ import azmq
 from azmq.multiplexer import Multiplexer
 
 
-use_all_transports = pytest.mark.parametrize('endpoint', [
-    'inproc://mypath',
-    'tcp://127.0.0.1:3333',
-])
-"""
-A decorator that causes the test scenario to run once with each of the support
-transports.
-"""
+from ..conftest import use_all_transports
 
 
 async def zerosec(awaitable):

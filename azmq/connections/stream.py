@@ -26,7 +26,7 @@ class StreamConnection(BaseConnection):
     """
     Implements a ZMTP connection that works on a pair of streams.
     """
-    def __init__(self, *, reader, writer, **kwargs):
+    def __init__(self, *, reader, writer, zap_client, **kwargs):
         super().__init__(**kwargs)
         self.reader = reader
         self.writer = writer
@@ -35,6 +35,7 @@ class StreamConnection(BaseConnection):
             socket.TCP_NODELAY,
             1,
         )
+        self.zap_client = zap_client
         self.version = None
         self.ping_period = 5
         self.ping_timeout = self.ping_period * 3
@@ -72,12 +73,19 @@ class StreamConnection(BaseConnection):
             as_server=self.mechanism.as_server,
         )
 
-        metadata = await self.mechanism.negotiate(
-            reader=self.reader,
-            writer=self.writer,
-            metadata=self.get_metadata(),
+        # At worst, negotiation should end when the connection is closed.
+        metadata, user_id, auth_metadata = await self.await_until_closing(
+            self.mechanism.negotiate(
+                reader=self.reader,
+                writer=self.writer,
+                metadata=self.get_metadata(),
+                address=self.writer.get_extra_info('peername')[0],
+                zap_client=self.zap_client,
+            ),
         )
         self.set_remote_metadata(metadata)
+        self.remote_user_id = user_id
+        self.remote_auth_metadata = auth_metadata
 
         logger.debug("Connection is now ready to read and write.")
         self.on_ready(self)
