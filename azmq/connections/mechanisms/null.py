@@ -18,12 +18,6 @@ class NullMechanism(Mechanism):
 
     @classmethod
     def _write_null_ready(cls, writer, metadata):
-        """
-        Write a NULL READY message.
-
-        :param writer: The writer to use.
-        :param metadata: The metadata dictionary.
-        """
         cls.write_command(
             writer=writer,
             name=b'READY',
@@ -32,12 +26,6 @@ class NullMechanism(Mechanism):
 
     @classmethod
     async def _read_null_ready(cls, reader):
-        """
-        Read a NULL READY message from the specified reader.
-
-        :param reader: The reader to use.
-        :returns: The peer's metadata dictionary.
-        """
         raw_metadata = await cls._expect_command(
             reader=reader,
             name=b'READY',

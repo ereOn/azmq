@@ -50,7 +50,7 @@ implemented already):
 
 - Those mechanisms:
   * [x] NULL
-  * [ ] PLAIN
+  * [x] PLAIN
   * [x] CURVE
   * [ ] ZAP
 

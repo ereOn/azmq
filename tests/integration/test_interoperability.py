@@ -26,6 +26,8 @@ from azmq.crypto import curve_gen_keypair
 from azmq.connections.mechanisms import (
     CurveClient,
     CurveServer,
+    PlainClient,
+    PlainServer,
 )
 
 
@@ -488,6 +490,78 @@ async def test_tcp_socket_curve_client(
             socket = context.socket(
                 socket_type=azmq.REQ,
                 mechanism=CurveClient(server_key=public),
+            )
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+            await asyncio.wait_for(
+                socket.send_multipart([b'my', b'question']),
+                1,
+            )
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            assert frames == [b'your', b'answer']
+
+
+@pytest.mark.parametrize("link", [
+    'bind',
+    'connect',
+])
+@pytest.mark.asyncio
+async def test_tcp_socket_plain_server(
+    event_loop,
+    socket_factory,
+    connect_or_bind,
+):
+    rep_socket = socket_factory.create(zmq.REP)
+    rep_socket.plain_username = b'user'
+    rep_socket.plain_password = b'password'
+    connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        frames = rep_socket.recv_multipart()
+        assert frames == [b'my', b'question']
+        rep_socket.send_multipart([b'your', b'answer'])
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(
+                socket_type=azmq.REQ,
+                mechanism=PlainServer(),
+            )
+            connect_or_bind(socket, 'tcp://127.0.0.1:3333')
+            await asyncio.wait_for(
+                socket.send_multipart([b'my', b'question']),
+                1,
+            )
+            frames = await asyncio.wait_for(socket.recv_multipart(), 1)
+            assert frames == [b'your', b'answer']
+
+
+@pytest.mark.parametrize("link", [
+    'bind',
+    'connect',
+])
+@pytest.mark.asyncio
+async def test_tcp_socket_plain_client(
+    event_loop,
+    socket_factory,
+    connect_or_bind,
+):
+    rep_socket = socket_factory.create(zmq.REP)
+    rep_socket.plain_server = True
+    connect_or_bind(rep_socket, 'tcp://127.0.0.1:3333', reverse=True)
+
+    def run():
+        frames = rep_socket.recv_multipart()
+        assert frames == [b'my', b'question']
+        rep_socket.send_multipart([b'your', b'answer'])
+
+    with run_in_background(run):
+        async with azmq.Context(loop=event_loop) as context:
+            socket = context.socket(
+                socket_type=azmq.REQ,
+                mechanism=PlainClient(
+                    username=b'username',
+                    password=b'password',
+                ),
             )
             connect_or_bind(socket, 'tcp://127.0.0.1:3333')
             await asyncio.wait_for(
