@@ -95,7 +95,14 @@ class Context(CompositeClosableAsyncObject):
             server_future = self._inproc_servers[path] = \
                 asyncio.Future(loop=self.loop)
         elif server_future.done():
-            raise InprocPathBound(path=path)
+            server = server_future.result()
+
+            if server.closing:
+                await server.wait_closed()
+                server_future = self._inproc_servers[path] = \
+                    asyncio.Future(loop=self.loop)
+            else:
+                raise InprocPathBound(path=path)
 
         server = InprocServer(loop=self.loop, handler=handler)
         logger.debug("Starting inproc server on %r.", path)

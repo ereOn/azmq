@@ -38,6 +38,10 @@ from .engines.tcp import (
     TCPClientEngine,
     TCPServerEngine,
 )
+from .engines.ipc import (
+    IPCClientEngine,
+    IPCServerEngine,
+)
 from .engines.inproc import (
     InprocClientEngine,
     InprocServerEngine,
@@ -158,10 +162,19 @@ class Socket(CompositeClosableAsyncObject):
                 identity=self.identity,
                 mechanism=self.mechanism,
             )
+        elif url.scheme == 'ipc':
+            engine = IPCClientEngine(
+                path=url.path,
+                zap_client=self.context.zap_client,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
+            )
         elif url.scheme == 'inproc':
             engine = InprocClientEngine(
                 context=self.context,
                 path=url.netloc,
+                zap_client=self.context.zap_client,
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,
@@ -207,10 +220,19 @@ class Socket(CompositeClosableAsyncObject):
                 identity=self.identity,
                 mechanism=self.mechanism,
             )
+        elif url.scheme == 'ipc':
+            engine = IPCServerEngine(
+                path=url.path,
+                zap_client=self.context.zap_client,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
+            )
         elif url.scheme == 'inproc':
             engine = InprocServerEngine(
                 context=self.context,
                 path=url.netloc,
+                zap_client=self.context.zap_client,
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,

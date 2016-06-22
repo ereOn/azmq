@@ -31,6 +31,7 @@ def event_loop():
 use_all_transports = pytest.mark.parametrize('endpoint', [
     'inproc://mypath',
     'tcp://127.0.0.1:3333',
+    'ipc:///tmp/mypath',
 ])
 """
 A decorator that causes the test scenario to run once with each of the support

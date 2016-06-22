@@ -45,10 +45,10 @@ async def test_req_rep(event_loop, endpoint):
             req_socket.bind(endpoint)
             rep_socket.connect(endpoint)
 
-            await req_socket.send_multipart([b'my', b'request'])
-            message = await rep_socket.recv_multipart()
+            await onesec(req_socket.send_multipart([b'my', b'request']))
+            message = await onesec(rep_socket.recv_multipart())
             assert message == [b'my', b'request']
-            await rep_socket.send_multipart([b'my', b'response'])
+            await onesec(rep_socket.send_multipart([b'my', b'response']))
             message = await req_socket.recv_multipart()
             assert message == [b'my', b'response']
 

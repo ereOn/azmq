@@ -41,15 +41,8 @@ class ClosableAsyncObject(AsyncObject):
         self._closed_future = asyncio.Future(loop=self.loop)
         self._closing = asyncio.Event(loop=self.loop)
         self.on_closed = Signal()
-        logger.debug("%s opened.", self.__class__.__name__)
+        logger.debug("%s[%s] opened.", self.__class__.__name__, id(self))
         self.on_open(*args, **kwargs)
-
-    def __del__(self):
-        """
-        Closes asynchronously the object upon deletion.
-        """
-        if not self.loop.is_closed():
-            self.close()
 
     @property
     def closing(self):
@@ -155,7 +148,7 @@ class ClosableAsyncObject(AsyncObject):
 
         :param future: The close future.
         """
-        logger.debug("%s closed.", self.__class__.__name__)
+        logger.debug("%s[%s] closed.", self.__class__.__name__, id(self))
         self.on_closed.emit(self)
         self._closed_future.set_result(future.result())
 
@@ -164,7 +157,11 @@ class ClosableAsyncObject(AsyncObject):
         Close the instance.
         """
         if not self.closed and not self.closing:
-            logger.debug("%s closing...", self.__class__.__name__)
+            logger.debug(
+                "%s[%s] closing...",
+                self.__class__.__name__,
+                id(self),
+            )
             self._closing.set()
             future = asyncio.ensure_future(self.on_close(result))
             future.add_done_callback(self._set_closed)

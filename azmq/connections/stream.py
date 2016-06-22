@@ -4,7 +4,6 @@ Implements a ZMTP connection.
 
 import asyncio
 import random
-import socket
 import struct
 
 from ..constants import (
@@ -26,15 +25,11 @@ class StreamConnection(BaseConnection):
     """
     Implements a ZMTP connection that works on a pair of streams.
     """
-    def __init__(self, *, reader, writer, zap_client, **kwargs):
+    def __init__(self, *, reader, writer, address, zap_client, **kwargs):
         super().__init__(**kwargs)
         self.reader = reader
         self.writer = writer
-        self.writer.transport.get_extra_info('socket').setsockopt(
-            socket.IPPROTO_TCP,
-            socket.TCP_NODELAY,
-            1,
-        )
+        self.address = address
         self.zap_client = zap_client
         self.version = None
         self.ping_period = 5
@@ -55,6 +50,8 @@ class StreamConnection(BaseConnection):
     async def run(self):
         try:
             await self.on_run()
+        except asyncio.CancelledError:
+            logger.debug("Connection was closed.")
         except ProtocolError as ex:
             logger.debug("Protocol error (%s). Terminating connection.", ex)
         except asyncio.IncompleteReadError:
@@ -79,7 +76,7 @@ class StreamConnection(BaseConnection):
                 reader=self.reader,
                 writer=self.writer,
                 metadata=self.get_metadata(),
-                address=self.writer.get_extra_info('peername')[0],
+                address=self.address,
                 zap_client=self.zap_client,
             ),
         )

@@ -1,9 +1,9 @@
 """
-TCP engines.
+IPC engines.
 """
 
 import asyncio
-import socket
+import os
 
 from ..connections.stream import StreamConnection
 from ..log import logger
@@ -11,45 +11,31 @@ from ..log import logger
 from .base import BaseEngine
 
 
-class TCPClientEngine(BaseEngine):
-    def on_open(self, *, host, port, **kwargs):
+class IPCClientEngine(BaseEngine):
+    def on_open(self, *, path, **kwargs):
         super().on_open(**kwargs)
 
-        self.host = host
-        self.port = port
+        self.path = path
 
     async def open_connection(self):
         try:
-            reader, writer = await asyncio.open_connection(
-                host=self.host,
-                port=self.port,
+            reader, writer = await asyncio.open_unix_connection(
+                path=self.path,
             )
 
         except OSError as ex:
             logger.debug(
-                "Connection attempt to %s:%s failed (%s). Retrying...",
-                self.host,
-                self.port,
+                "Connection attempt to %s failed (%s). Retrying...",
+                self.path,
                 ex,
             )
         else:
-            writer.transport.get_extra_info('socket').setsockopt(
-                socket.IPPROTO_TCP,
-                socket.TCP_NODELAY,
-                1,
-            )
-
-            address, port = writer.get_extra_info('peername')
-            logger.debug(
-                "Connection to %s:%s established.",
-                address,
-                port,
-            )
+            logger.debug("Connection to %s established.", self.path)
 
             async with StreamConnection(
                 reader=reader,
                 writer=writer,
-                address=address,
+                address=self.path,
                 zap_client=self.zap_client,
                 socket_type=self.socket_type,
                 identity=self.identity,
@@ -60,26 +46,26 @@ class TCPClientEngine(BaseEngine):
                 self.register_child(connection)
                 await connection.wait_closed()
 
-            logger.debug(
-                "Connection to %s:%s closed.",
-                address,
-                port,
-            )
+            logger.debug("Connection to %s closed.", self.path)
 
 
-class TCPServerEngine(BaseEngine):
-    def on_open(self, *, host, port, **kwargs):
+class IPCServerEngine(BaseEngine):
+    def on_open(self, *, path, **kwargs):
         super().on_open(**kwargs)
 
-        self.host = host
-        self.port = port
+        self.path = path
 
     async def open_connection(self):
         try:
-            server = await asyncio.start_server(
+            # Remove any stale UNIX socket.
+            try:
+                os.unlink(self.path)
+            except FileNotFoundError:
+                pass
+
+            server = await asyncio.start_unix_server(
                 self.handle_connection,
-                host=self.host,
-                port=self.port,
+                path=self.path,
             )
 
             try:
@@ -92,26 +78,17 @@ class TCPServerEngine(BaseEngine):
             raise
         except Exception:
             logger.exception(
-                "Unable to start TCP server on %s:%s.",
-                self.host,
-                self.port,
+                "Unable to start UNIX server on %s.",
+                self.path,
             )
 
     async def handle_connection(self, reader, writer):
-        address, port = writer.get_extra_info('peername')
-        peername = '%s:%s' % (address, port)
-
-        logger.debug("Connection from %s established.", peername)
-        writer.transport.get_extra_info('socket').setsockopt(
-            socket.IPPROTO_TCP,
-            socket.TCP_NODELAY,
-            1,
-        )
+        logger.debug("Connection from %s established.", self.path)
 
         async with StreamConnection(
             reader=reader,
             writer=writer,
-            address=address,
+            address=self.path,
             zap_client=self.zap_client,
             socket_type=self.socket_type,
             identity=self.identity,
@@ -122,4 +99,4 @@ class TCPServerEngine(BaseEngine):
             self.register_child(connection)
             await connection.wait_closed()
 
-        logger.debug("Connection from %s lost.", peername)
+        logger.debug("Connection from %s lost.", self.path)
