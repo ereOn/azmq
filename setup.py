@@ -23,8 +23,12 @@ AZMQ is an implementation of ZMTP (the protocol behind ZMQ) using native Python
     ]),
     install_requires=[
         'pyslot>=2.0.0,<3',
-        'pysodium>=0.6.9',
     ],
+    extras_require={
+        'pysodium': [
+            'pysodium>=0.6.9',
+        ],
+    },
     test_suite='tests',
     classifiers=[
         'Intended Audience :: Developers',

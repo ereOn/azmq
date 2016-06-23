@@ -30,6 +30,8 @@ from azmq.connections.mechanisms import (
     PlainServer,
 )
 
+from ..conftest import requires_libsodium
+
 
 @pytest.yield_fixture
 def pyzmq_context():
@@ -422,6 +424,7 @@ async def test_tcp_big_messages(event_loop, socket_factory, connect_or_bind):
             assert frames == [b'3' * 500, b'4' * 100000]
 
 
+@requires_libsodium
 @pytest.mark.parametrize("link", [
     'bind',
     'connect',
@@ -463,6 +466,7 @@ async def test_tcp_socket_curve_server(
             assert frames == [b'your', b'answer']
 
 
+@requires_libsodium
 @pytest.mark.parametrize("link", [
     'bind',
     'connect',

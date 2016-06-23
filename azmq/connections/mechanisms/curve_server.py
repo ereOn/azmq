@@ -7,7 +7,9 @@ import struct
 
 from itertools import islice
 
-from pysodium import (
+from ...log import logger
+from ...errors import ProtocolError
+from ...crypto import (
     crypto_box,
     crypto_box_keypair,
     crypto_box_afternm,
@@ -17,15 +19,14 @@ from pysodium import (
     crypto_secretbox,
     crypto_secretbox_open,
     randombytes,
+    requires_libsodium,
 )
-
-from ...log import logger
-from ...errors import ProtocolError
 
 from .base import Mechanism
 
 
 class CurveServer(object):
+    @requires_libsodium
     def __init__(self, public_key=None, secret_key=None):
         if public_key or secret_key:
             self.set_permanent_keypair(

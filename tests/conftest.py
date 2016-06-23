@@ -6,6 +6,8 @@ import asyncio
 import pytest
 import sys
 
+from azmq.crypto import HAS_LIBSODIUM
+
 
 @pytest.yield_fixture
 def event_loop():
@@ -34,3 +36,8 @@ use_all_transports = pytest.mark.parametrize('endpoint', [
 A decorator that causes the test scenario to run once with each of the support
 transports.
 """
+
+requires_libsodium = pytest.mark.skipif(
+    not HAS_LIBSODIUM,
+    reason="No libsodium support installed.",
+)

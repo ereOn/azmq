@@ -16,6 +16,8 @@ from azmq.connections.mechanisms import (
 from azmq.crypto import curve_gen_keypair
 from azmq.zap import ZAPAuthenticator
 
+from ..conftest import requires_libsodium
+
 
 ENDPOINT = 'tcp://127.0.0.1:5000'
 
@@ -158,6 +160,7 @@ async def test_plain_invalid_password(event_loop):
             rep_socket.close()
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_curve_valid_key(event_loop):
     async with azmq.Context() as context:
@@ -198,6 +201,7 @@ async def test_curve_valid_key(event_loop):
             rep_socket.close()
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_curve_invalid_key(event_loop):
     async with azmq.Context() as context:

@@ -9,23 +9,24 @@ from itertools import (
     islice,
 )
 
-from pysodium import (
+from ...log import logger
+from ...errors import ProtocolError
+from ...crypto import (
     crypto_box,
-    crypto_box_keypair,
     crypto_box_afternm,
     crypto_box_beforenm,
+    crypto_box_keypair,
     crypto_box_open,
     crypto_box_open_afternm,
     randombytes,
+    requires_libsodium,
 )
-
-from ...log import logger
-from ...errors import ProtocolError
 
 from .base import Mechanism
 
 
 class CurveClient(object):
+    @requires_libsodium
     def __init__(
         self,
         server_key,
