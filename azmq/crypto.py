@@ -22,7 +22,7 @@ def libsodium_check(*args, **kwargs):
 
 
 try:
-    from pysodium import (
+    from csodium import (
         crypto_box,
         crypto_box_keypair,
         crypto_box_afternm,
@@ -33,21 +33,36 @@ try:
         crypto_secretbox_open,
         randombytes,
     )
-except ImportError:
-    # Provides fake functions so that import statements always work.
-    crypto_box = libsodium_check
-    crypto_box_keypair = libsodium_check
-    crypto_box_afternm = libsodium_check
-    crypto_box_beforenm = libsodium_check
-    crypto_box_open = libsodium_check
-    crypto_box_open_afternm = libsodium_check
-    crypto_secretbox = libsodium_check
-    crypto_secretbox_open = libsodium_check
-    randombytes = libsodium_check
 
-    HAS_LIBSODIUM = False
-else:
     HAS_LIBSODIUM = True
+except ImportError:
+    try:
+        from pysodium import (
+            crypto_box,
+            crypto_box_keypair,
+            crypto_box_afternm,
+            crypto_box_beforenm,
+            crypto_box_open,
+            crypto_box_open_afternm,
+            crypto_secretbox,
+            crypto_secretbox_open,
+            randombytes,
+        )
+
+        HAS_LIBSODIUM = True
+    except ImportError:
+        # Provides fake functions so that import statements always work.
+        crypto_box = libsodium_check
+        crypto_box_keypair = libsodium_check
+        crypto_box_afternm = libsodium_check
+        crypto_box_beforenm = libsodium_check
+        crypto_box_open = libsodium_check
+        crypto_box_open_afternm = libsodium_check
+        crypto_secretbox = libsodium_check
+        crypto_secretbox_open = libsodium_check
+        randombytes = libsodium_check
+
+        HAS_LIBSODIUM = False
 
 
 def requires_libsodium(func):
