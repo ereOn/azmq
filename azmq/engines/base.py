@@ -29,6 +29,9 @@ class BaseEngine(CompositeClosableAsyncObject):
         self.zap_client = zap_client
         self.on_connection_ready = Signal()
         self.on_connection_lost = Signal()
+        self.max_backoff_duration = 300  # 5 minutes.
+        self.min_backoff_duration = 0.001
+        self.current_backoff_duration = self.min_backoff_duration
 
     def on_open(self, **kwargs):
         super().on_open(**kwargs)
@@ -40,8 +43,14 @@ class BaseEngine(CompositeClosableAsyncObject):
         while not self.closing:
             try:
                 await self.open_connection()
+                self.current_backoff_duration = self.min_backoff_duration
+
             except Exception:
                 pass
 
-            # TODO: Implement exponentional back-off.
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(self.current_backoff_duration)
+
+            self.current_backoff_duration = min(
+                self.max_backoff_duration,
+                self.current_backoff_duration * 2,
+            )
