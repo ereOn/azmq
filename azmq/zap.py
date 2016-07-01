@@ -80,17 +80,17 @@ class ZAPClient(CompositeClosableAsyncObject):
                     "Ignoring.",
                     request_id,
                 )
-
-            if status_code == 200:
-                future.set_result((user_id, metadata))
-            elif status_code == 300:
-                future.set_exception(ZAPTemporaryError(status_text))
-            elif status_code == 400:
-                future.set_exception(ZAPAuthenticationFailure(status_text))
-            elif status_code == 500:
-                future.set_exception(ZAPInternalError(status_text))
             else:
-                future.set_exception(ZAPError(status_text, status_code))
+                if status_code == 200:
+                    future.set_result((user_id, metadata))
+                elif status_code == 300:
+                    future.set_exception(ZAPTemporaryError(status_text))
+                elif status_code == 400:
+                    future.set_exception(ZAPAuthenticationFailure(status_text))
+                elif status_code == 500:
+                    future.set_exception(ZAPInternalError(status_text))
+                else:
+                    future.set_exception(ZAPError(status_text, status_code))
 
     def _get_next_request_id(self):
         request_id = next(self._request_ids)
