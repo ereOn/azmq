@@ -23,7 +23,7 @@ from threading import (
 import azmq
 
 from azmq.crypto import curve_gen_keypair
-from azmq.connections.mechanisms import (
+from azmq.mechanisms import (
     CurveClient,
     CurveServer,
     PlainClient,

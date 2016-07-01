@@ -7,7 +7,7 @@ import pytest
 
 import azmq
 
-from azmq.connections.mechanisms import (
+from azmq.mechanisms import (
     CurveClient,
     CurveServer,
     PlainClient,

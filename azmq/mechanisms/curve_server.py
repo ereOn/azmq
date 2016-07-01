@@ -7,9 +7,9 @@ import struct
 
 from itertools import islice
 
-from ...log import logger
-from ...errors import ProtocolError
-from ...crypto import (
+from ..log import logger
+from ..errors import ProtocolError
+from ..crypto import (
     crypto_box,
     crypto_box_keypair,
     crypto_box_afternm,

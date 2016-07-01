@@ -9,9 +9,9 @@ from itertools import (
     islice,
 )
 
-from ...log import logger
-from ...errors import ProtocolError
-from ...crypto import (
+from ..log import logger
+from ..errors import ProtocolError
+from ..crypto import (
     crypto_box,
     crypto_box_afternm,
     crypto_box_beforenm,

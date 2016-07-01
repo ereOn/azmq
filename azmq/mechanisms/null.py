@@ -2,7 +2,7 @@
 The NULL mechanism.
 """
 
-from ...log import logger
+from ..log import logger
 
 from .base import Mechanism
 

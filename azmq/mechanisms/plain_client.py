@@ -4,7 +4,7 @@ The PLAIN client mechanism.
 
 import struct
 
-from ...log import logger
+from ..log import logger
 
 from .base import Mechanism
 

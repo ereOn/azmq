@@ -29,11 +29,11 @@ from .constants import (
     XPUB,
     XSUB,
 )
+from .containers import AsyncList
 from .errors import (
     UnsupportedSchemeError,
     InvalidOperation,
 )
-from .connections.mechanisms import Null
 from .engines.tcp import (
     TCPClientEngine,
     TCPServerEngine,
@@ -47,7 +47,7 @@ from .engines.inproc import (
     InprocServerEngine,
 )
 from .log import logger
-from .containers import AsyncList
+from .mechanisms import Null
 
 
 class Peer(object):

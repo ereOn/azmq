@@ -6,8 +6,8 @@ import struct
 
 from itertools import islice
 
-from ...errors import ProtocolError
-from ...metadata import (
+from ..errors import ProtocolError
+from ..metadata import (
     buffer_to_metadata,
     metadata_to_buffers,
 )
