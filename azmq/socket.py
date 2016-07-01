@@ -13,8 +13,7 @@ from functools import partial
 from .common import (
     CompositeClosableAsyncObject,
     cancel_on_closing,
-    AsyncInbox,
-    AsyncOutbox,
+    AsyncBox,
 )
 from .constants import (
     DEALER,
@@ -139,13 +138,13 @@ class Socket(CompositeClosableAsyncObject):
             raise ValueError("Unsupported socket type: %r" % self.socket_type)
 
     def create_inbox(self):
-        return AsyncInbox(
+        return AsyncBox(
             maxsize=self.max_inbox_size,
             loop=self.loop,
         )
 
     def create_outbox(self):
-        return AsyncOutbox(
+        return AsyncBox(
             maxsize=self.max_outbox_size,
             loop=self.loop,
         )

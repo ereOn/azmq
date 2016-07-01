@@ -172,10 +172,6 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
     Base class for objects that can be asynchronously closed and awaited and
     have ownership of other closable objects.
     """
-    @property
-    def children(self):
-        return self._children
-
     def on_open(self):
         self._children = set()
 
@@ -266,8 +262,8 @@ class AsyncTimeout(AsyncTaskObject):
         """
         Initialize a new timeout.
 
-        :param callback: The  callbackto execute when the timeout reaches the
-            end of its life.
+        :param callback: The  callback to execute when the timeout reaches the
+            end of its life. May be a coroutine function.
         :param timeout: The maximum time to wait for, in seconds.
         """
         super().on_open()
@@ -285,7 +281,13 @@ class AsyncTimeout(AsyncTaskObject):
                 )
                 self.revive_event.clear()
         except asyncio.TimeoutError:
-            self.callback()
+            try:
+                if asyncio.iscoroutinefunction(self.callback):
+                    await self.callback()
+                else:
+                    self.callback()
+            except Exception:
+                logger.exception("Error in timeout callback execution.")
 
     def revive(self, timeout=None):
         """
@@ -303,15 +305,16 @@ class AsyncPeriodicTimer(AsyncTaskObject):
     """
     An asynchronous periodic timer.
     """
-    def on_open(self, coro, period):
+    def on_open(self, callback, period):
         """
         Initialize a new timer.
 
-        :param coro: The coroutine to execute on each tick.
+        :param callback: The function or coroutine function to call on each
+            tick.
         :param period: The interval of time between two ticks.
         """
         super().on_open()
-        self.coro = coro
+        self.callback = callback
         self.period = period
         self.reset_event = asyncio.Event(loop=self.loop)
 
@@ -325,11 +328,12 @@ class AsyncPeriodicTimer(AsyncTaskObject):
                 )
             except asyncio.TimeoutError:
                 try:
-                    await self.coro()
+                    if asyncio.iscoroutinefunction(self.callback):
+                        await self.callback()
+                    else:
+                        self.callback()
                 except Exception:
-                    logger.exception(
-                        "Error while running AsyncPeriodicTimer callback.",
-                    )
+                    logger.exception("Error in timer callback execution.")
             else:
                 self.reset_event.clear()
 
@@ -346,20 +350,24 @@ class AsyncPeriodicTimer(AsyncTaskObject):
         self.reset_event.set()
 
 
-class AsyncInbox(ClosableAsyncObject):
+class AsyncBox(ClosableAsyncObject):
     def on_open(self, maxsize=0):
         self._maxsize = maxsize
         self._queue = asyncio.Queue(maxsize=maxsize, loop=self.loop)
         self._can_read = asyncio.Event(loop=self.loop)
+        self._can_write = asyncio.Event(loop=self.loop)
+        self._can_write.set()
 
     @cancel_on_closing
     async def read(self):
         """
-        Read from the inbox in a blocking manner.
+        Read from the box in a blocking manner.
 
-        :returns: An item from the inbox.
+        :returns: An item from the box.
         """
         result = await self._queue.get()
+
+        self._can_write.set()
 
         if self._queue.empty():
             self._can_read.clear()
@@ -368,15 +376,17 @@ class AsyncInbox(ClosableAsyncObject):
 
     def read_nowait(self):
         """
-        Read from the inbox in a non-blocking manner.
+        Read from the box in a non-blocking manner.
 
-        If the inbox is empty, an exception is thrown. You should always check
+        If the box is empty, an exception is thrown. You should always check
         for emptiness with `empty` or `wait_not_empty` before calling this
         method.
 
-        :returns: An item from the inbox.
+        :returns: An item from the box.
         """
         result = self._queue.get_nowait()
+
+        self._can_write.set()
 
         if self._queue.empty():
             self._can_read.clear()
@@ -389,6 +399,13 @@ class AsyncInbox(ClosableAsyncObject):
         Blocks until the queue is not empty.
         """
         await self._can_read.wait()
+
+    @cancel_on_closing
+    async def wait_not_full(self):
+        """
+        Blocks until the queue is not full.
+        """
+        await self._can_write.wait()
 
     def full(self):
         return self._queue.full()
@@ -406,115 +423,46 @@ class AsyncInbox(ClosableAsyncObject):
         await self._queue.put(item)
         self._can_read.set()
 
-    def clear(self):
-        """
-        Clear the inbox.
-        """
-        while not self._queue.empty():
-            self._queue.get_nowait()
-
-        self._can_read.clear()
-
-    def clone(self):
-        """
-        Clone the inbox.
-
-        :returns: A new inbox with the same item queue.
-
-        The cloned inbox is not closed, no matter the initial state of the
-        original instance.
-        """
-        result = AsyncInbox(maxsize=self._maxsize, loop=self.loop)
-        result._queue = self._queue
-        result._can_read = self._can_read
-        return result
-
-
-class AsyncOutbox(ClosableAsyncObject):
-    def on_open(self, maxsize=0):
-        self._maxsize = maxsize
-        self._queue = asyncio.Queue(maxsize=maxsize, loop=self.loop)
-        self._can_write = asyncio.Event(loop=self.loop)
-        self._can_write.set()
-
-    @cancel_on_closing
-    async def write(self, item):
-        """
-        Write in the outbox in a blocking manner.
-
-        :param item: An item.
-        """
-        await self._queue.put(item)
-
         if self._queue.full():
             self._can_write.clear()
 
     def write_nowait(self, item):
         """
-        Write in the inbox in a non-blocking manner.
+        Write in the box in a non-blocking manner.
 
-        If the inbox is full, an exception is thrown. You should always check
+        If the box is full, an exception is thrown. You should always check
         for fullness with `full` or `wait_not_full` before calling this method.
 
         :param item: An item.
         """
         self._queue.put_nowait(item)
+        self._can_read.set()
 
         if self._queue.full():
             self._can_write.clear()
 
-    @cancel_on_closing
-    async def wait_not_full(self):
-        """
-        Blocks until the queue is not full.
-        """
-        await self._can_write.wait()
-
-    def full(self):
-        return self._queue.full()
-
-    def empty(self):
-        return self._queue.empty()
-
-    @cancel_on_closing
-    async def read(self):
-        """
-        Read an item from the queue.
-
-        :returns: The item.
-        """
-        result = await self._queue.get()
-        self._can_write.set()
-        return result
-
-    def read_nowait(self):
-        """
-        Read an item from the queue.
-
-        :returns: The item.
-        """
-        self._can_write.set()
-        return self._queue.get_nowait()
-
     def clear(self):
         """
-        Clear the outbox.
+        Clear the box.
         """
         while not self._queue.empty():
             self._queue.get_nowait()
 
+        self._can_read.clear()
         self._can_write.set()
 
     def clone(self):
         """
-        Clone the outbox.
+        Clone the box.
 
-        :returns: A new outbox with the same item queue.
+        :returns: A new box with the same item queue.
 
-        The cloned outbox is not closed, no matter the initial state of the
+        The cloned box is not closed, no matter the initial state of the
         original instance.
         """
-        result = AsyncOutbox(maxsize=self._maxsize, loop=self.loop)
+        result = AsyncBox(maxsize=self._maxsize, loop=self.loop)
         result._queue = self._queue
+        result._can_read = self._can_read
         result._can_write = self._can_write
+
         return result

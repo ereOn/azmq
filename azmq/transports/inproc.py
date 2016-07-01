@@ -5,7 +5,7 @@ Inproc transport classes.
 import asyncio
 
 from ..common import (
-    AsyncInbox,
+    AsyncBox,
     ClosableAsyncObject,
     CompositeClosableAsyncObject,
     cancel_on_closing,
@@ -17,7 +17,7 @@ class Channel(ClosableAsyncObject):
         super().on_open()
         self._path = path
         self._linked_channel = None
-        self._inbox = AsyncInbox(loop=self.loop)
+        self._inbox = AsyncBox(loop=self.loop)
 
     async def on_close(self, result):
         self._inbox.close()

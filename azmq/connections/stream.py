@@ -93,7 +93,7 @@ class StreamConnection(BaseConnection):
         if self.version >= (3, 1):
             # Make sure we send pings regularly.
             self._send_ping_timer = AsyncPeriodicTimer(
-                coro=self._send_ping,
+                callback=self._send_ping,
                 period=self.ping_period,
             )
             self.register_child(self._send_ping_timer)
