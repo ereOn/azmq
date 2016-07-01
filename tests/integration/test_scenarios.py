@@ -309,3 +309,31 @@ async def test_push_pull_max_outbox_size(event_loop, endpoint):
         finally:
             push_socket.close()
             pull_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_router_identity(event_loop, endpoint):
+    async with azmq.Context() as context:
+        dealer_socket = context.socket(azmq.DEALER)
+        router_socket = context.socket(azmq.ROUTER)
+
+        try:
+            dealer_socket.identity = b'hello'
+            dealer_socket.bind(endpoint)
+            router_socket.connect(endpoint)
+
+            await fivesec(dealer_socket.send_multipart(
+                [b'', b'my', b'request'],
+            ))
+            message = await fivesec(router_socket.recv_multipart())
+            assert message == [b'hello', b'', b'my', b'request']
+            await fivesec(router_socket.send_multipart(
+                [b'hello', b'', b'my', b'response'],
+            ))
+            message = await dealer_socket.recv_multipart()
+            assert message == [b'', b'my', b'response']
+
+        finally:
+            dealer_socket.close()
+            router_socket.close()
