@@ -66,8 +66,9 @@ async def test_closable_async_object_as_async_contextmanager(event_loop):
 @pytest.mark.asyncio
 async def test_async_timeout_expiration(event_loop):
     event = asyncio.Event(loop=event_loop)
-    async_timeout = AsyncTimeout(callback=event.set, timeout=0)
-    await event.wait()
+
+    with AsyncTimeout(callback=event.set, timeout=0):
+        await event.wait()
 
 
 @pytest.mark.asyncio
