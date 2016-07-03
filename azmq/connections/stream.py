@@ -41,25 +41,11 @@ class StreamConnection(BaseConnection):
         self._max_pending_pings = 3
         self._nonce = 0
 
-    async def on_close(self, result):
+    async def on_close(self):
         try:
-            return await super().on_close(result)
+            return await super().on_close()
         finally:
             self.writer.close()
-
-    async def run(self):
-        try:
-            await self.on_run()
-        except asyncio.CancelledError:
-            logger.debug("Connection was closed.")
-        except ProtocolError as ex:
-            logger.debug("Protocol error (%s). Terminating connection.", ex)
-        except asyncio.IncompleteReadError:
-            logger.debug("Remote end was closed. Terminating connection.")
-        except Exception:
-            logger.exception("Unexpected error. Terminating connection.")
-        finally:
-            self.close()
 
     async def on_run(self):
         self.version = await self._greeting(

@@ -149,7 +149,7 @@ class Socket(CompositeClosableAsyncObject):
             loop=self.loop,
         )
 
-    def connect(self, endpoint):
+    def connect(self, endpoint, *, on_connection_failure=None):
         url = urlsplit(endpoint)
 
         if url.scheme == 'tcp':
@@ -187,6 +187,10 @@ class Socket(CompositeClosableAsyncObject):
         engine.on_connection_lost.connect(
             partial(self.unregister_connection, engine=engine),
         )
+
+        if on_connection_failure:
+            engine.on_connection_failure.connect(on_connection_failure)
+
         self._outgoing_engines[url] = engine
         peer = Peer(
             engine=engine,
@@ -207,7 +211,7 @@ class Socket(CompositeClosableAsyncObject):
         engine.close()
         await engine.wait_closed()
 
-    def bind(self, endpoint):
+    def bind(self, endpoint, *, on_connection_failure=None):
         url = urlsplit(endpoint)
 
         if url.scheme == 'tcp':
@@ -245,6 +249,10 @@ class Socket(CompositeClosableAsyncObject):
         engine.on_connection_lost.connect(
             partial(self.unregister_connection, engine=engine),
         )
+
+        if on_connection_failure:
+            engine.on_connection_failure.connect(on_connection_failure)
+
         self._incoming_engines[url] = engine
         self.register_child(engine)
 
@@ -680,7 +688,7 @@ class Socket(CompositeClosableAsyncObject):
 
         # Do this **BEFORE** awaiting so that new connections created during
         # the execution below honor the setting.
-        self._subscriptions.append(topic)
+        self._subscriptions.remove(topic)
         tasks = [
             asyncio.ensure_future(
                 peer.connection.local_unsubscribe(topic),

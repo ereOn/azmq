@@ -46,25 +46,27 @@ class TCPClientEngine(BaseEngine):
                 port,
             )
 
-            async with StreamConnection(
-                reader=reader,
-                writer=writer,
-                address=address,
-                zap_client=self.zap_client,
-                socket_type=self.socket_type,
-                identity=self.identity,
-                mechanism=self.mechanism,
-                on_ready=self.on_connection_ready.emit,
-                on_lost=self.on_connection_lost.emit,
-            ) as connection:
-                self.register_child(connection)
-                await connection.wait_closed()
-
-            logger.debug(
-                "Connection to %s:%s closed.",
-                address,
-                port,
-            )
+            try:
+                async with StreamConnection(
+                    reader=reader,
+                    writer=writer,
+                    address=address,
+                    zap_client=self.zap_client,
+                    socket_type=self.socket_type,
+                    identity=self.identity,
+                    mechanism=self.mechanism,
+                    on_ready=self.on_connection_ready.emit,
+                    on_lost=self.on_connection_lost.emit,
+                    on_failure=self.on_connection_failure,
+                ) as connection:
+                    self.register_child(connection)
+                    return await connection.wait_closed()
+            finally:
+                logger.debug(
+                    "Connection to %s:%s closed.",
+                    address,
+                    port,
+                )
 
 
 class TCPServerEngine(BaseEngine):
@@ -118,6 +120,7 @@ class TCPServerEngine(BaseEngine):
             mechanism=self.mechanism,
             on_ready=self.on_connection_ready.emit,
             on_lost=self.on_connection_lost.emit,
+            on_failure=self.on_connection_failure,
         ) as connection:
             self.register_child(connection)
             await connection.wait_closed()

@@ -28,7 +28,7 @@ class Context(CompositeClosableAsyncObject):
         self._zap_authenticator = None
         self.zap_client = None
 
-    async def on_close(self, result):
+    async def on_close(self):
         for server_future in self._inproc_servers.values():
             if not server_future.cancelled():
                 if not server_future.done():
@@ -36,7 +36,7 @@ class Context(CompositeClosableAsyncObject):
 
         self._inproc_servers.clear()
 
-        await super().on_close(result)
+        await super().on_close()
 
     def socket(self, socket_type, identity=None, mechanism=None):
         """

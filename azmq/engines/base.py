@@ -10,6 +10,8 @@ from ..common import (
     CompositeClosableAsyncObject,
     cancel_on_closing,
 )
+from ..errors import ProtocolError
+from ..log import logger
 
 
 class BaseEngine(CompositeClosableAsyncObject):
@@ -29,6 +31,7 @@ class BaseEngine(CompositeClosableAsyncObject):
         self.zap_client = zap_client
         self.on_connection_ready = Signal()
         self.on_connection_lost = Signal()
+        self.on_connection_failure = Signal()
         self.max_backoff_duration = 300  # 5 minutes.
         self.min_backoff_duration = 0.001
         self.current_backoff_duration = self.min_backoff_duration
@@ -42,7 +45,12 @@ class BaseEngine(CompositeClosableAsyncObject):
     async def run(self):
         while not self.closing:
             try:
-                await self.open_connection()
+                result = await self.open_connection()
+
+                if isinstance(result, ProtocolError) and result.fatal:
+                    logger.warning("Fatal error: %s. Not restarting.", result)
+                    break
+
                 self.current_backoff_duration = self.min_backoff_duration
 
             except Exception:

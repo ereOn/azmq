@@ -8,6 +8,7 @@ import pytest
 import azmq
 
 from azmq.multiplexer import Multiplexer
+from azmq.errors import ProtocolError
 
 
 from ..conftest import use_all_transports
@@ -337,3 +338,131 @@ async def test_router_identity(event_loop, endpoint):
         finally:
             dealer_socket.close()
             router_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_req_rep_invalid_identity(event_loop, endpoint):
+    async with azmq.Context() as context:
+        req_socket = context.socket(azmq.REQ)
+        rep_socket = context.socket(azmq.REP)
+
+        try:
+            future = asyncio.Future(loop=event_loop)
+            req_engine = req_socket.connect(
+                endpoint,
+                on_connection_failure=future.set_result,
+            )
+            rep_socket.identity = b'\0invalid'
+            rep_socket.bind(endpoint)
+
+            await fivesec(future)
+            assert isinstance(future.result().error, ProtocolError)
+            assert future.result().error.fatal
+
+        finally:
+            req_socket.close()
+            rep_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_req_req_invalid_combination(event_loop, endpoint):
+    async with azmq.Context() as context:
+        req_socket = context.socket(azmq.REQ)
+        req_socket_2 = context.socket(azmq.REQ)
+
+        try:
+            future = asyncio.Future(loop=event_loop)
+            req_engine = req_socket.connect(
+                endpoint,
+                on_connection_failure=future.set_result,
+            )
+            req_socket_2.bind(endpoint)
+
+            await fivesec(future)
+            assert isinstance(future.result().error, ProtocolError)
+            assert future.result().error.fatal
+
+        finally:
+            req_socket.close()
+            req_socket_2.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_req_rep_multiple_receivers(event_loop, endpoint):
+    async with azmq.Context() as context:
+        req_socket = context.socket(azmq.REQ)
+        rep_socket = context.socket(azmq.REP)
+        rep_socket_2 = context.socket(azmq.REP)
+
+        try:
+            req_socket.bind(endpoint)
+            rep_socket.connect(endpoint)
+            rep_socket_2.connect(endpoint)
+
+            multiplexer = Multiplexer()
+            multiplexer.add_socket(rep_socket)
+            multiplexer.add_socket(rep_socket_2)
+
+            await fivesec(req_socket.send_multipart([b'my', b'request']))
+            (socket, message), = await fivesec(multiplexer.recv_multipart())
+            assert message == [b'my', b'request']
+            await fivesec(socket.send_multipart([b'my', b'response']))
+            message = await req_socket.recv_multipart()
+            assert message == [b'my', b'response']
+
+        finally:
+            req_socket.close()
+            rep_socket.close()
+            rep_socket_2.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_pub_sub_unsubscribe(event_loop, endpoint):
+    async with azmq.Context() as context:
+        pub_socket = context.socket(azmq.PUB)
+        sub_socket = context.socket(azmq.SUB)
+        await sub_socket.subscribe(b'h')
+        await sub_socket.subscribe(b'g')
+
+        try:
+            pub_socket.bind(endpoint)
+            sub_socket.connect(endpoint)
+
+            # Let's start a task that sends messages on the pub socket.
+            async def publish():
+                while True:
+                    await fivesec(pub_socket.send_multipart([b'hello']))
+
+            publish_task = asyncio.ensure_future(publish())
+
+            try:
+                message = await fivesec(sub_socket.recv_multipart())
+                assert message == [b'hello']
+            finally:
+                publish_task.cancel()
+
+            await sub_socket.unsubscribe(b'h')
+
+            # Let's start a task that sends messages on the pub socket.
+            async def publish():
+                while True:
+                    await fivesec(pub_socket.send_multipart([b'hello']))
+                    await fivesec(pub_socket.send_multipart([b'gello']))
+
+            publish_task = asyncio.ensure_future(publish())
+
+            try:
+                while message == [b'hello']:
+                    message = await fivesec(sub_socket.recv_multipart())
+
+                assert message == [b'gello']
+            finally:
+                publish_task.cancel()
+
+        finally:
+            pub_socket.close()
+            sub_socket.close()

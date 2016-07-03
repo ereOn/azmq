@@ -8,6 +8,7 @@ from ..constants import (
     PUB,
     XPUB,
 )
+from ..errors import ProtocolError
 from ..log import logger
 from .base import BaseConnection
 
@@ -23,14 +24,6 @@ class InprocConnection(BaseConnection):
     ):
         super().__init__(**kwargs)
         self.channel = channel
-
-    async def run(self):
-        try:
-            await self.on_run()
-        except Exception:
-            logger.exception("Unexpected error. Terminating connection.")
-        finally:
-            self.close()
 
     async def on_run(self):
         await self.channel.write(self.get_metadata())

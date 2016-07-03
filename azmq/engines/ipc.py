@@ -42,6 +42,7 @@ class IPCClientEngine(BaseEngine):
                 mechanism=self.mechanism,
                 on_ready=self.on_connection_ready.emit,
                 on_lost=self.on_connection_lost.emit,
+                on_failure=self.on_connection_failure,
             ) as connection:
                 self.register_child(connection)
                 await connection.wait_closed()
@@ -95,6 +96,7 @@ class IPCServerEngine(BaseEngine):
             mechanism=self.mechanism,
             on_ready=self.on_connection_ready.emit,
             on_lost=self.on_connection_lost.emit,
+            on_failure=self.on_connection_failure,
         ) as connection:
             self.register_child(connection)
             await connection.wait_closed()

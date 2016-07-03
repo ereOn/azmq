@@ -19,7 +19,7 @@ class Channel(ClosableAsyncObject):
         self._linked_channel = None
         self._inbox = AsyncBox(loop=self.loop)
 
-    async def on_close(self, result):
+    async def on_close(self):
         self._inbox.close()
 
         if self._linked_channel:
@@ -28,6 +28,10 @@ class Channel(ClosableAsyncObject):
             self._linked_channel = None
 
         await self._inbox.wait_closed()
+
+    @property
+    def path(self):
+        return self._path
 
     def __repr__(self):
         return 'Channel(path=%r)' % self._path
@@ -52,11 +56,11 @@ class InprocServer(CompositeClosableAsyncObject):
         self._handler = handler
         self._tasks = []
 
-    async def on_close(self, result):
+    async def on_close(self):
         if self._tasks:
             await asyncio.wait(self._tasks[:])
 
-        await super().on_close(result)
+        await super().on_close()
 
     def create_channel(self, path):
         if self.closing:

@@ -29,6 +29,7 @@ class BaseConnection(CompositeClosableAsyncObject):
         mechanism,
         on_ready,
         on_lost,
+        on_failure,
         **kwargs
     ):
         assert socket_type, "A socket-type must be specified."
@@ -39,6 +40,7 @@ class BaseConnection(CompositeClosableAsyncObject):
         self.mechanism = mechanism()
         self.on_ready = on_ready
         self.on_lost = on_lost
+        self.on_failure = on_failure
 
         self.remote_socket_type = None
         self.remote_identity = None
@@ -48,15 +50,43 @@ class BaseConnection(CompositeClosableAsyncObject):
         self.subscriptions = []
         self._discard_incoming_messages = False
         self._run_task = asyncio.ensure_future(self.run(), loop=self.loop)
+        self._error = None
 
-    async def on_close(self, result):
+    async def on_close(self):
         # When the closing state is set, all tasks in the run task are
         # guaranteed to stop, so we can just wait gracefully for it to happen.
         await self._run_task
         await self.unsubscribe_all()
-        await super().on_close(result)
 
-        return result
+        if self.on_failure and self._error:
+            self.on_failure.emit(self)
+
+        await super().on_close()
+
+    async def run(self):
+        try:
+            await self.on_run()
+        except asyncio.CancelledError as ex:
+            logger.debug("Connection was closed.")
+            self.set_error(ex)
+        except ProtocolError as ex:
+            logger.warning("%s", ex)
+            self.set_error(ex)
+        except asyncio.IncompleteReadError as ex:
+            logger.debug("Remote end was closed. Terminating connection.")
+            self.set_error(ex)
+        except Exception as ex:
+            logger.exception("Unexpected error. Terminating connection.")
+            self.set_error(ex)
+        finally:
+            self.close()
+
+    def set_error(self, exception):
+        self._error = exception
+
+    @property
+    def error(self):
+        return self._error
 
     def get_metadata(self):
         metadata = {

@@ -20,7 +20,7 @@ class MyClass(ClosableAsyncObject):
         super().__init__(**kwargs)
         self.can_close = asyncio.Event()
 
-    async def on_close(self, result):
+    async def on_close(self):
         await self.can_close.wait()
 
 

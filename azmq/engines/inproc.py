@@ -32,21 +32,24 @@ class InprocClientEngine(BaseEngine):
                 self.path,
             )
 
-            async with InprocConnection(
-                channel=channel,
-                socket_type=self.socket_type,
-                identity=self.identity,
-                mechanism=self.mechanism,
-                on_ready=self.on_connection_ready.emit,
-                on_lost=self.on_connection_lost.emit,
-            ) as connection:
-                self.register_child(connection)
-                await connection.wait_closed()
-
-            logger.debug(
-                "Connection to %s closed.",
-                self.path,
-            )
+            try:
+                async with channel:
+                    async with InprocConnection(
+                        channel=channel,
+                        socket_type=self.socket_type,
+                        identity=self.identity,
+                        mechanism=self.mechanism,
+                        on_ready=self.on_connection_ready.emit,
+                        on_lost=self.on_connection_lost.emit,
+                        on_failure=self.on_connection_failure,
+                    ) as connection:
+                        self.register_child(connection)
+                        return await connection.wait_closed()
+            finally:
+                logger.debug(
+                    "Connection to %s closed.",
+                    self.path,
+                )
 
 
 class InprocServerEngine(BaseEngine):
@@ -78,7 +81,7 @@ class InprocServerEngine(BaseEngine):
             )
 
     async def handle_connection(self, channel):
-        logger.debug("Connection from %s established.", channel)
+        logger.debug("Connection from %s established.", channel.path)
 
         async with InprocConnection(
             channel=channel,
@@ -87,8 +90,9 @@ class InprocServerEngine(BaseEngine):
             mechanism=self.mechanism,
             on_ready=self.on_connection_ready.emit,
             on_lost=self.on_connection_lost.emit,
+            on_failure=self.on_connection_failure,
         ) as connection:
             self.register_child(connection)
             await connection.wait_closed()
 
-        logger.debug("Connection from %s lost.", channel)
+        logger.debug("Connection from %s lost.", channel.path)
