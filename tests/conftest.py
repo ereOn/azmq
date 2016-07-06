@@ -28,11 +28,17 @@ def event_loop():
     loop.close()
 
 
-use_all_transports = pytest.mark.parametrize('endpoint', [
+ENDPOINTS = [
     'inproc://mypath',
     'tcp://127.0.0.1:3333',
-    'ipc:///tmp/mypath',
-])
+]
+
+if sys.platform == 'win32':
+    ENDPOINTS.append(r'ipc:////./pipe/echo')
+else:
+    ENDPOINTS.append('ipc:///tmp/mypath')
+
+use_all_transports = pytest.mark.parametrize('endpoint', ENDPOINTS)
 """
 A decorator that causes the test scenario to run once with each of the support
 transports.

@@ -4,11 +4,28 @@ IPC engines.
 
 import asyncio
 import os
+import sys
 
 from ..connections.stream import StreamConnection
 from ..log import logger
 
 from .base import BaseEngine
+
+if sys.platform == 'win32':
+    from .win32 import start_pipe_server as start_ipc_server
+    from .win32 import open_pipe_connection as open_ipc_connection
+else:
+    from asyncio import start_unix_server
+
+    async def start_ipc_server(*args, **kwargs):
+        try:
+            os.unlink(kwargs['path'])
+        except FileNotFoundError:
+            pass
+
+        return await start_unix_server(*args, **kwargs)
+
+    from asyncio import open_unix_connection as open_ipc_connection
 
 
 class IPCClientEngine(BaseEngine):
@@ -19,7 +36,7 @@ class IPCClientEngine(BaseEngine):
 
     async def open_connection(self):
         try:
-            reader, writer = await asyncio.open_unix_connection(
+            reader, writer = await open_ipc_connection(
                 path=self.path,
             )
 
@@ -58,13 +75,7 @@ class IPCServerEngine(BaseEngine):
 
     async def open_connection(self):
         try:
-            # Remove any stale UNIX socket.
-            try:
-                os.unlink(self.path)
-            except FileNotFoundError:
-                pass
-
-            server = await asyncio.start_unix_server(
+            server = await start_ipc_server(
                 self.handle_connection,
                 path=self.path,
             )
