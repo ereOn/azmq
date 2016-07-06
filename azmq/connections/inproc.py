@@ -8,7 +8,6 @@ from ..constants import (
     PUB,
     XPUB,
 )
-from ..errors import ProtocolError
 from ..log import logger
 from .base import BaseConnection
 
