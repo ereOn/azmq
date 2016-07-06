@@ -19,15 +19,11 @@ a specific event-loop, which prevents using the default, standard ones.
 
 **AZMQ**'s goal is to lift those restrictions and to work the same on all
 platforms that Python 3.5 supports by providing a pure asyncio-native
-implementation.
+implementation. Windows is no second-class citizen when it comes to **AZMQ**.
 
-## Current state and goals
+## API
 
-**AZMQ** is currently **NOT** in a production-ready state. The code has not
-been thoroughly performance-tested let alone optimized. This will come later.
-
-The main focus at the moment is to provide support for (checked items are
-implemented already):
+**AZMQ** implements the following things:
 
 - All socket types:
   * [x] REQ
@@ -46,13 +42,27 @@ implemented already):
   * [x] TCP client
   * [x] TCP server
   * [x] Inproc
-  * [ ] UNIX sockets
+  * [x] IPC sockets (UNIX sockets and named pipes)
 
 - Those mechanisms:
   * [x] NULL
   * [x] PLAIN
   * [x] CURVE
   * [x] ZAP
+
+It is worth noting that, for once, IPC sockets are implemented on **all
+platforms**, including *Windows*. This is done through named pipes and is very
+convenient for portability.
+
+Please refer to the documentation for details.
+
+## Current state and goals
+
+**AZMQ** is currently **NOT** in a production-ready state. While the code has
+decent test coverage and interoperability tests, the code has not been
+thoroughly performance-tested let alone optimized.
+
+This will come: please help or be patient.
 
 Also, the intended API tries to be close to the one of pyzmq, but not too
 close. Here is an **non-exhaustive** list of some differences in the APIs:
