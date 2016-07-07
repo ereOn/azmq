@@ -81,6 +81,7 @@ class StreamConnection(BaseConnection):
             self._send_ping_timer = AsyncPeriodicTimer(
                 callback=self._send_ping,
                 period=self.ping_period,
+                loop=self.loop,
             )
             self.register_child(self._send_ping_timer)
 
@@ -88,6 +89,7 @@ class StreamConnection(BaseConnection):
             self._expect_ping_timeout = AsyncTimeout(
                 self.close,
                 timeout=self.ping_timeout,
+                loop=self.loop,
             )
             self.register_child(self._expect_ping_timeout)
 
@@ -296,13 +298,15 @@ class StreamConnection(BaseConnection):
             self.mechanism.write_command(
                 self.writer,
                 b'PING',
-                struct.pack('!H', int(self.ping_timeout * 10)),
-                ping_ctx,
+                (
+                    struct.pack('!H', int(self.ping_timeout * 10)),
+                    ping_ctx,
+                ),
             )
 
     def _send_pong(self, ping_ctx):
         logger.debug("Sending PONG (%r).", ping_ctx)
-        self.mechanism.write_command(self.writer, b'PONG', ping_ctx)
+        self.mechanism.write_command(self.writer, b'PONG', (ping_ctx,))
 
     def _process_ping_command(self, data):
         ttl = struct.unpack('!H', data[:2])[0]

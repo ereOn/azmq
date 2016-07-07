@@ -81,6 +81,7 @@ class ClosableAsyncObject(AsyncObject):
             done, pending = await asyncio.wait(
                 [wait_task, coro_task],
                 return_when=asyncio.FIRST_COMPLETED,
+                loop=self.loop,
             )
 
         finally:
@@ -162,7 +163,7 @@ class ClosableAsyncObject(AsyncObject):
                 id(self),
             )
             self._closing.set()
-            future = asyncio.ensure_future(self.on_close())
+            future = asyncio.ensure_future(self.on_close(), loop=self.loop)
             future.add_done_callback(self._set_closed)
 
 
@@ -179,7 +180,8 @@ class CompositeClosableAsyncObject(ClosableAsyncObject):
             *[
                 self.on_close_child(child)
                 for child in self._children
-            ]
+            ],
+            loop=self.loop,
         )
         del self._children
 
@@ -233,7 +235,7 @@ class AsyncTaskObject(ClosableAsyncObject):
     async def on_close(self):
         self.run_task.cancel()
 
-        await asyncio.wait([self.run_task])
+        await asyncio.wait([self.run_task], loop=self.loop)
 
     async def run(self):
         try:

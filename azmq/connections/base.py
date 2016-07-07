@@ -72,7 +72,7 @@ class BaseConnection(CompositeClosableAsyncObject):
         except ProtocolError as ex:
             logger.warning("%s", ex)
             self.set_error(ex)
-        except asyncio.IncompleteReadError as ex:
+        except (asyncio.IncompleteReadError, ConnectionError) as ex:
             logger.debug("Remote end was closed. Terminating connection.")
             self.set_error(ex)
         except Exception as ex:
@@ -186,5 +186,6 @@ class BaseConnection(CompositeClosableAsyncObject):
 
     async def unsubscribe_all(self):
         await asyncio.gather(
-            *[self.unsubscribe(topic) for topic in self.subscriptions[:]]
+            *[self.unsubscribe(topic) for topic in self.subscriptions[:]],
+            loop=self.loop
         )

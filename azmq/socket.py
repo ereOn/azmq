@@ -86,7 +86,7 @@ class Socket(CompositeClosableAsyncObject):
         self._outgoing_engines = {}
         self._outgoing_peers = {}
         self._incoming_engines = {}
-        self._peers = AsyncList()
+        self._peers = AsyncList(loop=self.loop)
         self._in_peers = self._peers.create_proxy()
         self._out_peers = self._peers.create_proxy()
         self._base_identity = random.getrandbits(32)
@@ -160,6 +160,7 @@ class Socket(CompositeClosableAsyncObject):
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,
+                loop=self.loop,
             )
         elif url.scheme == 'ipc':
             engine = IPCClientEngine(
@@ -168,6 +169,7 @@ class Socket(CompositeClosableAsyncObject):
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,
+                loop=self.loop,
             )
         elif url.scheme == 'inproc':
             engine = InprocClientEngine(
@@ -177,6 +179,7 @@ class Socket(CompositeClosableAsyncObject):
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,
+                loop=self.loop,
             )
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
@@ -222,6 +225,7 @@ class Socket(CompositeClosableAsyncObject):
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,
+                loop=self.loop,
             )
         elif url.scheme == 'ipc':
             engine = IPCServerEngine(
@@ -230,6 +234,7 @@ class Socket(CompositeClosableAsyncObject):
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,
+                loop=self.loop,
             )
         elif url.scheme == 'inproc':
             engine = InprocServerEngine(
@@ -239,6 +244,7 @@ class Socket(CompositeClosableAsyncObject):
                 socket_type=self.socket_type,
                 identity=self.identity,
                 mechanism=self.mechanism,
+                loop=self.loop,
             )
         else:
             raise UnsupportedSchemeError(scheme=url.scheme)
@@ -359,6 +365,7 @@ class Socket(CompositeClosableAsyncObject):
                 done, pending = await asyncio.wait(
                     tasks,
                     return_when=asyncio.FIRST_COMPLETED,
+                    loop=self.loop,
                 )
             finally:
                 for task in tasks:
@@ -419,6 +426,7 @@ class Socket(CompositeClosableAsyncObject):
                 done, pending = await asyncio.wait(
                     tasks,
                     return_when=asyncio.FIRST_COMPLETED,
+                    loop=self.loop,
                 )
             finally:
                 for task in tasks:

@@ -39,7 +39,7 @@ class BaseEngine(CompositeClosableAsyncObject):
     def on_open(self, **kwargs):
         super().on_open(**kwargs)
 
-        self.run_task = asyncio.ensure_future(self.run())
+        self.run_task = asyncio.ensure_future(self.run(), loop=self.loop)
 
     @cancel_on_closing
     async def run(self):
@@ -56,7 +56,7 @@ class BaseEngine(CompositeClosableAsyncObject):
             except Exception:
                 pass
 
-            await asyncio.sleep(self.current_backoff_duration)
+            await asyncio.sleep(self.current_backoff_duration, loop=self.loop)
 
             self.current_backoff_duration = min(
                 self.max_backoff_duration,

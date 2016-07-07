@@ -23,6 +23,7 @@ class TCPClientEngine(BaseEngine):
             reader, writer = await asyncio.open_connection(
                 host=self.host,
                 port=self.port,
+                loop=self.loop,
             )
 
         except OSError as ex:
@@ -58,6 +59,7 @@ class TCPClientEngine(BaseEngine):
                     on_ready=self.on_connection_ready.emit,
                     on_lost=self.on_connection_lost.emit,
                     on_failure=self.on_connection_failure,
+                    loop=self.loop,
                 ) as connection:
                     self.register_child(connection)
                     return await connection.wait_closed()
@@ -82,6 +84,7 @@ class TCPServerEngine(BaseEngine):
                 self.handle_connection,
                 host=self.host,
                 port=self.port,
+                loop=self.loop,
             )
 
             try:
@@ -121,6 +124,7 @@ class TCPServerEngine(BaseEngine):
             on_ready=self.on_connection_ready.emit,
             on_lost=self.on_connection_lost.emit,
             on_failure=self.on_connection_failure,
+            loop=self.loop,
         ) as connection:
             self.register_child(connection)
             await connection.wait_closed()

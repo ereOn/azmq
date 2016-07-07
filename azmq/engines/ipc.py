@@ -38,6 +38,7 @@ class IPCClientEngine(BaseEngine):
         try:
             reader, writer = await open_ipc_connection(
                 path=self.path,
+                loop=self.loop,
             )
 
         except OSError as ex:
@@ -60,6 +61,7 @@ class IPCClientEngine(BaseEngine):
                 on_ready=self.on_connection_ready.emit,
                 on_lost=self.on_connection_lost.emit,
                 on_failure=self.on_connection_failure,
+                loop=self.loop,
             ) as connection:
                 self.register_child(connection)
                 await connection.wait_closed()
@@ -78,6 +80,7 @@ class IPCServerEngine(BaseEngine):
             server = await start_ipc_server(
                 self.handle_connection,
                 path=self.path,
+                loop=self.loop,
             )
 
             try:
@@ -108,6 +111,7 @@ class IPCServerEngine(BaseEngine):
             on_ready=self.on_connection_ready.emit,
             on_lost=self.on_connection_lost.emit,
             on_failure=self.on_connection_failure,
+            loop=self.loop,
         ) as connection:
             self.register_child(connection)
             await connection.wait_closed()
