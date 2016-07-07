@@ -67,6 +67,17 @@ class Peer(object):
         self.inbox = inbox
         self.outbox = outbox
 
+    def reset(self):
+        self.connection = None
+        self.inbox.close()
+        self.inbox = self.inbox.clone()
+        self.outbox.close()
+        self.outbox = self.outbox.clone()
+
+    @property
+    def dead(self):
+        return not self.engine and self.inbox.empty()
+
 
 class Socket(CompositeClosableAsyncObject):
     """
@@ -307,24 +318,18 @@ class Socket(CompositeClosableAsyncObject):
     def unregister_connection(self, connection, engine):
         logger.debug("Unregistering inactive connection: %s", connection)
 
-        if self.socket_type == XPUB and not connection.inbox.empty():
-            logger.debug(
-                "XPUB socket's inbox not empty: adding it back to the pool of "
-                "inboxes.",
-            )
-            peer = next(p for p in self._peers if p.connection is connection)
-            peer.engine = None
-            peer.connection = None
-            peer.outbox = None
-        else:
-            peer = self._outgoing_peers.get(engine)
+        peer = self._outgoing_peers.get(engine)
 
-            if peer:
-                peer.connection = None
-            else:
-                self._peers.pop_first_match(
-                    lambda p: p.connection is connection,
-                )
+        if not peer:
+            # If the peer is not an outgoing peer, we remove its associated
+            # engine so it gets removed when its inbox becomes empty.
+            peer = next(
+                p for p in self._peers if p.connection is connection,
+            )
+            peer.engine = None
+
+        # This cancels any pending read on the peer.
+        peer.reset()
 
     def generate_identity(self):
         """
@@ -338,6 +343,18 @@ class Socket(CompositeClosableAsyncObject):
 
         return identity
 
+    async def _wait_peers(self):
+        """
+        Blocks until at least one non-dead peer is available.
+        """
+        # Make sure we remove dead peers.
+        for p in self._peers[:]:
+            if p.dead:
+                self._peers.remove(p)
+
+        while not self._peers:
+            await self._peers.wait_not_empty()
+
     async def _fair_get_in_peer(self):
         """
         Get the first available available inbound peer in a fair manner.
@@ -348,7 +365,7 @@ class Socket(CompositeClosableAsyncObject):
         peer = None
 
         while not peer:
-            await self._in_peers.wait_not_empty()
+            await self._wait_peers()
 
             # This rotates the list, implementing fair-queuing.
             peers = list(self._in_peers)
@@ -393,10 +410,6 @@ class Socket(CompositeClosableAsyncObject):
             peer = await self._fair_get_in_peer()
             result = peer.inbox.read_nowait()
 
-            # Make sure we remove gone peers with empty inboxes.
-            if not peer.engine and peer.inbox.empty():
-                self._peers.remove(peer)
-
         return result
 
     async def _fair_get_out_peer(self):
@@ -409,7 +422,7 @@ class Socket(CompositeClosableAsyncObject):
         peer = None
 
         while not peer:
-            await self._out_peers.wait_not_empty()
+            await self._wait_peers()
 
             # This rotates the list, implementing fair-queuing.
             peers = list(self._out_peers)
