@@ -7,6 +7,7 @@ import azmq
 import chromalog
 import click
 import logging
+import signal
 import sys
 import threading
 
@@ -29,8 +30,8 @@ def allow_interruption(*callbacks):
         @phandler_routine
         def shutdown(event):
             if event == 0:
-                for cb, args in callbacks:
-                    cb(*args)
+                for loop, cb in callbacks:
+                    loop.call_soon_threadsafe(cb)
 
                 return 1
 
@@ -38,6 +39,9 @@ def allow_interruption(*callbacks):
 
         if setconsolectrlhandler(shutdown, 1) == 0:
             raise WindowsError()
+    else:
+        for loop, cb in callbacks:
+            loop.add_signal_handler(signal.SIGINT, cb)
 
     try:
         yield
@@ -45,6 +49,9 @@ def allow_interruption(*callbacks):
         if sys.platform == 'win32':
             if setconsolectrlhandler(shutdown, 0) == 0:
                     raise WindowsError()
+        else:
+            for loop, cb in callbacks:
+                loop.remove_signal_handler(signal.SIGINT)
 
 
 @click.group()
@@ -213,8 +220,8 @@ def client(ctx, in_connect, in_bind, out_connect, out_bind, count, size):
     out_thread.start()
 
     with allow_interruption(
-        (in_loop.call_soon_threadsafe, (in_context.close,)),
-        (out_loop.call_soon_threadsafe, (out_context.close,)),
+        (in_loop, in_context.close),
+        (out_loop, out_context.close),
     ):
         out_thread.join()
         in_thread.join()
@@ -301,7 +308,7 @@ def broker(ctx, in_connect, in_bind, out_connect, out_bind):
     def on_task_done(_):
         click.echo("Waiting for Ctrl+C to stop...")
 
-    with allow_interruption((loop.call_soon_threadsafe, (context.close,))):
+    with allow_interruption((loop, context.close)):
         loop.run_until_complete(context.wait_closed())
 
     loop.close()
