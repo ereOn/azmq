@@ -19,56 +19,47 @@ class TCPClientEngine(BaseEngine):
         self.port = port
 
     async def open_connection(self):
+        reader, writer = await asyncio.open_connection(
+            host=self.host,
+            port=self.port,
+            loop=self.loop,
+        )
+
+        writer.transport.get_extra_info('socket').setsockopt(
+            socket.IPPROTO_TCP,
+            socket.TCP_NODELAY,
+            1,
+        )
+
+        address, port = writer.get_extra_info('peername')
+        logger.debug(
+            "Connection to %s:%s established.",
+            address,
+            port,
+        )
+
         try:
-            reader, writer = await asyncio.open_connection(
-                host=self.host,
-                port=self.port,
+            async with StreamConnection(
+                reader=reader,
+                writer=writer,
+                address=address,
+                zap_client=self.zap_client,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
+                on_ready=self.on_connection_ready.emit,
+                on_lost=self.on_connection_lost.emit,
+                on_failure=self.on_connection_failure,
                 loop=self.loop,
-            )
-
-        except OSError as ex:
+            ) as connection:
+                self.register_child(connection)
+                return await connection.wait_closed()
+        finally:
             logger.debug(
-                "Connection attempt to %s:%s failed (%s). Retrying...",
-                self.host,
-                self.port,
-                ex,
-            )
-        else:
-            writer.transport.get_extra_info('socket').setsockopt(
-                socket.IPPROTO_TCP,
-                socket.TCP_NODELAY,
-                1,
-            )
-
-            address, port = writer.get_extra_info('peername')
-            logger.debug(
-                "Connection to %s:%s established.",
+                "Connection to %s:%s closed.",
                 address,
                 port,
             )
-
-            try:
-                async with StreamConnection(
-                    reader=reader,
-                    writer=writer,
-                    address=address,
-                    zap_client=self.zap_client,
-                    socket_type=self.socket_type,
-                    identity=self.identity,
-                    mechanism=self.mechanism,
-                    on_ready=self.on_connection_ready.emit,
-                    on_lost=self.on_connection_lost.emit,
-                    on_failure=self.on_connection_failure,
-                    loop=self.loop,
-                ) as connection:
-                    self.register_child(connection)
-                    return await connection.wait_closed()
-            finally:
-                logger.debug(
-                    "Connection to %s:%s closed.",
-                    address,
-                    port,
-                )
 
 
 class TCPServerEngine(BaseEngine):

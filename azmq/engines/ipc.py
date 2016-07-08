@@ -35,38 +35,30 @@ class IPCClientEngine(BaseEngine):
         self.path = path
 
     async def open_connection(self):
-        try:
-            reader, writer = await open_ipc_connection(
-                path=self.path,
-                loop=self.loop,
-            )
+        reader, writer = await open_ipc_connection(
+            path=self.path,
+            loop=self.loop,
+        )
 
-        except OSError as ex:
-            logger.debug(
-                "Connection attempt to %s failed (%s). Retrying...",
-                self.path,
-                ex,
-            )
-        else:
-            logger.debug("Connection to %s established.", self.path)
+        logger.debug("Connection to %s established.", self.path)
 
-            async with StreamConnection(
-                reader=reader,
-                writer=writer,
-                address=self.path,
-                zap_client=self.zap_client,
-                socket_type=self.socket_type,
-                identity=self.identity,
-                mechanism=self.mechanism,
-                on_ready=self.on_connection_ready.emit,
-                on_lost=self.on_connection_lost.emit,
-                on_failure=self.on_connection_failure,
-                loop=self.loop,
-            ) as connection:
-                self.register_child(connection)
-                await connection.wait_closed()
+        async with StreamConnection(
+            reader=reader,
+            writer=writer,
+            address=self.path,
+            zap_client=self.zap_client,
+            socket_type=self.socket_type,
+            identity=self.identity,
+            mechanism=self.mechanism,
+            on_ready=self.on_connection_ready.emit,
+            on_lost=self.on_connection_lost.emit,
+            on_failure=self.on_connection_failure,
+            loop=self.loop,
+        ) as connection:
+            self.register_child(connection)
+            await connection.wait_closed()
 
-            logger.debug("Connection to %s closed.", self.path)
+        logger.debug("Connection to %s closed.", self.path)
 
 
 class IPCServerEngine(BaseEngine):

@@ -51,10 +51,19 @@ class BaseEngine(CompositeClosableAsyncObject):
                     logger.warning("Fatal error: %s. Not restarting.", result)
                     break
 
-                self.current_backoff_duration = self.min_backoff_duration
+            except asyncio.CancelledError:
+                break
 
-            except Exception:
-                pass
+            except ProtocolError as ex:
+                if ex.fatal:
+                    logger.error("Fatal error: %r. Not restarting.", ex)
+                else:
+                    logger.warning("Error: %r.", ex)
+
+            except Exception as ex:
+                logger.warning("Connection error: %r.", ex)
+            else:
+                self.current_backoff_duration = self.min_backoff_duration
 
             await asyncio.sleep(self.current_backoff_duration, loop=self.loop)
 
