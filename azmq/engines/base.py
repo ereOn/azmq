@@ -54,12 +54,6 @@ class BaseEngine(CompositeClosableAsyncObject):
             except asyncio.CancelledError:
                 break
 
-            except ProtocolError as ex:
-                if ex.fatal:
-                    logger.error("Fatal error: %r. Not restarting.", ex)
-                else:
-                    logger.warning("Error: %r.", ex)
-
             except Exception as ex:
                 logger.warning("Connection error: %r.", ex)
             else:
