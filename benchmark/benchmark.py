@@ -51,9 +51,6 @@ def allow_interruption(*callbacks):
 @click.option('--debug', '-d', is_flag=True, default=False)
 @click.pass_context
 def benchmark(ctx, debug):
-    if sys.platform == 'win32':
-        asyncio.set_event_loop(asyncio.ProactorEventLoop())
-
     if debug:
         chromalog.basicConfig(level=logging.DEBUG)
 
@@ -113,7 +110,11 @@ def benchmark(ctx, debug):
 )
 @click.pass_context
 def client(ctx, in_connect, in_bind, out_connect, out_bind, count, size):
-    in_loop = asyncio.ProactorEventLoop()
+    if sys.platform == 'win32':
+        in_loop = asyncio.ProactorEventLoop()
+    else:
+        in_loop = asyncio.SelectorEventLoop()
+
     in_context = azmq.Context(loop=in_loop)
     in_socket = in_context.socket(azmq.PULL)
 
@@ -124,7 +125,11 @@ def client(ctx, in_connect, in_bind, out_connect, out_bind, count, size):
         click.echo("Incoming binding on %s." % in_bind)
         in_socket.bind(in_bind)
 
-    out_loop = asyncio.ProactorEventLoop()
+    if sys.platform == 'win32':
+        out_loop = asyncio.ProactorEventLoop()
+    else:
+        out_loop = asyncio.SelectorEventLoop()
+
     out_context = azmq.Context(loop=out_loop)
     out_socket = out_context.socket(azmq.PUSH)
     out_socket.max_outbox_size = 10
@@ -254,7 +259,11 @@ def client(ctx, in_connect, in_bind, out_connect, out_bind, count, size):
 )
 @click.pass_context
 def broker(ctx, in_connect, in_bind, out_connect, out_bind):
-    loop = asyncio.ProactorEventLoop()
+    if sys.platform == 'win32':
+        loop = asyncio.ProactorEventLoop()
+    else:
+        loop = asyncio.SelectorEventLoop()
+
     context = azmq.Context(loop=loop)
     in_socket = context.socket(azmq.PULL)
     out_socket = context.socket(azmq.PUSH)
