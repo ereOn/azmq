@@ -2,7 +2,6 @@
 Unit tests for the stream connection class.
 """
 
-import asyncio
 import pytest
 
 from io import BytesIO
