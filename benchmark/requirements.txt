@@ -1,0 +1,5 @@
+chromalog==1.0.5
+click==6.6
+mrjob==0.5.2
+numpy==1.11.1
+ujson==1.35
