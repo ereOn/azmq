@@ -7,7 +7,8 @@
 
 # AZMQ
 
-**AZMQ** is a Python 3 asyncio-native implementation of [ZMTP](http://rfc.zeromq.org/spec:37) (the protocol behind ZMQ).
+**AZMQ** is a Python 3 asyncio-native implementation of
+[ZMTP](http://rfc.zeromq.org/spec:37) (the protocol behind ZMQ).
 
 ## Motivation
 
@@ -54,23 +55,20 @@ It is worth noting that, for once, IPC sockets are implemented on **all
 platforms**, including *Windows*. This is done through named pipes and is very
 convenient for portability.
 
+Both TCP and IPC transports (on UNIX) are compatible with the legacy `zmq`
+implementation.
+
 Please refer to the documentation for details.
 
 ## Current state and goals
 
-**AZMQ** is currently **NOT** in a production-ready state. While the code has
-decent test coverage and interoperability tests, the code has not been
-thoroughly performance-tested let alone optimized.
-
-This will come: please help or be patient.
-
-Also, the intended API tries to be close to the one of pyzmq, but not too
-close. Here is an **non-exhaustive** list of some differences in the APIs:
+The API tries to be close to the one of pyzmq, but not too close. Here is an
+**non-exhaustive** list of some differences in the APIs:
 
 - **AZMQ** methods never take a `timeout` parameter. In the asyncio world, you
   just use
   [`asyncio.wait_for()`](https://docs.python.org/3/library/asyncio-task.html#asyncio.wait_for)
-  for that purpose.
+  for that purpose. All asynchronous methods are cancellable at anytime.
 - There is no
   [`Poller`](http://learning-0mq-with-pyzmq.readthedocs.io/en/latest/pyzmq/multisocket/zmqpoller.html)
   class. The asyncio event-loop already gives you everything you need in terms
@@ -79,48 +77,59 @@ close. Here is an **non-exhaustive** list of some differences in the APIs:
 
 ## Performances
 
-AZMQ is fairly recent and only a few benchmarks where made to assert his (in)effectiveness.
+**AZMQ**'s first release has been tested on all major platforms and
+benchmarked, following the recommendations at
+[zeromq.org](http://zeromq.org/whitepapers:measuring-performance).
 
-Here is a graph that shows the time spent by AZMQ and the reference
-implementation (pyzmq) when sending a bunch of messages of different sizes and
-waiting for a reply for each of those, over a LAN. The time spent by the
-generation of the messages or to establish the various connections is **NOT**
-contained in these measurements. Only the sending and receive of messages.
+Performance tests show that **AZMQ** is (unsurprisingly) slower than pyzmq for
+this specific benchmark. It's hard to compete with a very-well optimized C
+implementation, especially when it comes to networking. Also, and very
+importantly, AZMQ is be design single-threaded (asyncio) while pyzmq can use
+threads to parallelize work, thus furthering even more the difference.
 
-Details about the methodology can be found in the [benchmark](benchmark) folder.
+AZMQ is capable of sending thousands of messages/second while it's C
+counterpart can do much, much more. The main bottleneck seems to be the
+event-loop overhead, as the same throughput is computed for various transports
+(TCP/localhost, IPC, TCP/LAN, ...) and this throughput varies mainly from one
+computer to another.
 
-<p align="center">
-    <img src="benchmark/azmq_pyzmq_time_spent_comparison.png" alt="AZMQ-ZMQ time spent comparison graph">
-</p>
+That being said, not every application requires top-notch performance and the
+ability to send millions of messages/second. As the bottleneck is the
+event-loop/CPU, you can always scale-up by starting multiple processes (is
+there any other effective way to scale-up in Python anyway ?).
 
-For a full-size, interactive version of the graph, [click
-here](https://plot.ly/~ereOn/18/azmq-pyzmq-time-spent-comparison/) thanks to
-[`plot.ly`](https://plot.ly).
+In the worst case where you actually need that kind of performance in some
+parts of your system, ZMQ high-interoperability makes it easy to use any ZMQ
+implementation that suits your needs. You can then use AZMQ and its friendly
+user-interface everywhere else you want to: it'll just work nicely.
 
-From the benchmark, it seems that `azmq` is greatly outperformed (by a factor
-of 10) for small messages by `pyzmq`. This is no surprise provided that:
-
-- `azmq` is a pure Python library. `pyzmq` is a Python wrapper around the official `libzmq`, a C library.
-- `azmq` was never optimized as of now.
-- For small messages, which usually take less time to send on the wire, the
-  overhead of pure Python code is more significant and thus, noticeable. In
-  affine functions terms, **the `azmq` graph has a bigger constant**.
-
-However, it seems for bigger messages, `azmq` takes less time than `pyzmq`.
-This could be explained by the fact that messages are carried by reference
-inside all of `azmq` because those almost never leave the Python realm.
-
-For some weird reason, using `copy=False` in `pyzmq` results in the worst of
-both worlds.
-
-**Theories for those results or insights on the benchmark methodology are
-welcome**. The goal is not to lie about the library's performance, quite the
-opposite.
+If you want to replicate, analyse the benchmark results, you may find the code
+and instructions in the `benchmark` folder.
 
 ## Installation
 
-There is not official package available just yet but once there is, follow
-these instructions:
+Just do:
+
+```
+pip install azmq
+```
+
+This will install AZMQ **without CURVE support**.
+
+If you want CURVE support, you may install one of the two variants:
+
+```
+pip install azmq[csodium]
+```
+
+Or:
+
+```
+pip install azmq[pysodium]
+```
+
+To enable curve support. The former is preferred as it comes with an embedded,
+ready-to-use libsodium library.
 
 ---
 
