@@ -1,7 +1,7 @@
 Benchmark
 =========
 
-This folder contains scripts that allow to benchmark **AZMQ**.
+This folder contains scripts to benchmark **AZMQ**.
 
 Installation
 ------------
@@ -20,24 +20,30 @@ a network.
 
 1. Launch the broker, with the following command:
 
-    python benchmark.py broker
+   ```
+   python benchmark.py broker
+   ```
 
-You may get more information about the supported parameters by adding `--help`
-at the end.
+   You may get more information about the supported parameters by adding
+   `--help` at the end.
 
 2. Launch the client, with the following command:
 
-    python benchmark.py client
+   ```
+   python benchmark.py client
+   ```
 
-Again, you may get more information about the supported parameters by adding
-`--help` at the end.
+   Again, you may get more information about the supported parameters by adding
+   `--help` at the end.
 
 The client outputs raw results for each message sent on the standard output.
 You may redirect those to a file for later processing (append `> results.txt`
 to the command), or pipe the program directly into the analyse script to get an
 immediate summary:
 
-    python benchmark.py client | python analyse.py -q
+```
+python benchmark.py client | python analyse.py -q
+```
 
 Analysing
 ---------
