@@ -48,14 +48,14 @@ class BaseEngine(CompositeClosableAsyncObject):
                 result = await self.open_connection()
 
                 if isinstance(result, ProtocolError) and result.fatal:
-                    logger.warning("Fatal error: %s. Not restarting.", result)
+                    logger.debug("Fatal error: %s. Not restarting.", result)
                     break
 
             except asyncio.CancelledError:
                 break
 
             except Exception as ex:
-                logger.warning("Connection error: %r.", ex)
+                logger.debug("Connection error: %r.", ex)
             else:
                 self.current_backoff_duration = self.min_backoff_duration
 

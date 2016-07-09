@@ -22,6 +22,47 @@ a specific event-loop, which prevents using the default, standard ones.
 platforms that Python 3.5 supports by providing a pure asyncio-native
 implementation. Windows is no second-class citizen when it comes to **AZMQ**.
 
+## Example
+
+Here is a short example of AZMQ's usage:
+
+```python
+import asyncio
+import sys
+
+from azmq import (
+    Context,
+    REQ,
+    REP,
+)
+
+async def run():
+    async with Context() as context:
+        req = context.socket(REQ)
+        rep = context.socket(REP)
+
+        rep.bind('tcp://0.0.0.0:3333')
+        req.connect('tcp://127.0.0.1:3333')
+
+        await req.send_multipart([b'hello'])
+        msg = await rep.recv_multipart()
+        assert msg == [b'hello']
+        await rep.send_multipart([b'world'])
+        msg = await req.recv_multipart()
+        assert msg == [b'world']
+
+
+if __name__ == '__main__':
+    if sys.platform == 'win32':
+        loop = asyncio.ProactorEventLoop()
+    else:
+        loop = asyncio.SelectorEventLoop()
+
+    asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(run())
+```
+
 ## API
 
 **AZMQ** implements the following things:
@@ -84,7 +125,7 @@ benchmarked, following the recommendations at
 Performance tests show that **AZMQ** is (unsurprisingly) slower than pyzmq for
 this specific benchmark. It's hard to compete with a very-well optimized C
 implementation, especially when it comes to networking. Also, and very
-importantly, AZMQ is be design single-threaded (asyncio) while pyzmq can use
+importantly, AZMQ is by design single-threaded (asyncio) while pyzmq can use
 threads to parallelize work, thus furthering even more the difference.
 
 AZMQ is capable of sending thousands of messages/second while it's C

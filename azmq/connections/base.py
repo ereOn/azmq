@@ -70,7 +70,6 @@ class BaseConnection(CompositeClosableAsyncObject):
             logger.debug("Connection was closed.")
             self.set_error(ex)
         except ProtocolError as ex:
-            logger.warning("%s", ex)
             self.set_error(ex)
         except (asyncio.IncompleteReadError, ConnectionError) as ex:
             logger.debug("Remote end was closed. Terminating connection.")

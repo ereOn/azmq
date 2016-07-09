@@ -75,7 +75,7 @@ class ZAPClient(CompositeClosableAsyncObject):
             future = self._requests.get(request_id)
 
             if not future:
-                logger.warning(
+                logger.debug(
                     "Got authentication result for unknown request %r. "
                     "Ignoring.",
                     request_id,
