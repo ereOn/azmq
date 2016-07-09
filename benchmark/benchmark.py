@@ -17,6 +17,13 @@ from contextlib import contextmanager
 from functools import partial
 from time import perf_counter
 
+if sys.platform == 'win32':
+    from asyncio import ProactorEventLoop as LoopClass
+else:
+    try:
+        from uvloop import EventLoop as LoopClass
+    except ImportError:
+        from asyncio import SelectorEventLoop as LoopClass
 
 @contextmanager
 def allow_interruption(*callbacks):
@@ -121,11 +128,7 @@ def benchmark(ctx, debug):
 )
 @click.pass_context
 def client(ctx, in_connect, in_bind, out_connect, out_bind, count, size):
-    if sys.platform == 'win32':
-        in_loop = asyncio.ProactorEventLoop()
-    else:
-        in_loop = asyncio.SelectorEventLoop()
-
+    in_loop = LoopClass()
     in_context = azmq.Context(loop=in_loop)
     in_socket = in_context.socket(azmq.PULL)
 
@@ -136,11 +139,7 @@ def client(ctx, in_connect, in_bind, out_connect, out_bind, count, size):
         click.echo("Incoming binding on %s." % in_bind, err=True)
         in_socket.bind(in_bind)
 
-    if sys.platform == 'win32':
-        out_loop = asyncio.ProactorEventLoop()
-    else:
-        out_loop = asyncio.SelectorEventLoop()
-
+    out_loop = LoopClass()
     out_context = azmq.Context(loop=out_loop)
     out_socket = out_context.socket(azmq.PUSH)
     out_socket.max_outbox_size = 1
@@ -297,11 +296,7 @@ def client(ctx, in_connect, in_bind, out_connect, out_bind, count, size):
 )
 @click.pass_context
 def broker(ctx, in_connect, in_bind, out_connect, out_bind):
-    if sys.platform == 'win32':
-        loop = asyncio.ProactorEventLoop()
-    else:
-        loop = asyncio.SelectorEventLoop()
-
+    loop = LoopClass()
     context = azmq.Context(loop=loop)
     in_socket = context.socket(azmq.PULL)
     out_socket = context.socket(azmq.PUSH)
