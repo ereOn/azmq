@@ -95,17 +95,13 @@ class StreamConnection(BaseConnection):
 
         try:
             tasks = []
-
-            if self.inbox:
-                read_task = asyncio.ensure_future(self.read(), loop=self.loop)
-                tasks.append(read_task)
-
-            if self.outbox:
-                write_task = asyncio.ensure_future(
-                    self.write(),
-                    loop=self.loop,
-                )
-                tasks.append(write_task)
+            read_task = asyncio.ensure_future(self.read(), loop=self.loop)
+            tasks.append(read_task)
+            write_task = asyncio.ensure_future(
+                self.write(),
+                loop=self.loop,
+            )
+            tasks.append(write_task)
 
             try:
                 await self.await_until_closing(
@@ -132,7 +128,7 @@ class StreamConnection(BaseConnection):
         inbox = self.inbox
         read = self.mechanism.read
 
-        while not self.closing:
+        while True:
             frame, last = await read(
                 reader=self.reader,
                 on_command=self._process_command,
@@ -150,6 +146,10 @@ class StreamConnection(BaseConnection):
                     await self.subscribe(frame[1:])
                 elif type_ == 0:
                     await self.unsubscribe(frame[1:])
+                else:
+                    raise ProtocolError(
+                        "Unexpected subscription message type (%s)." % type_,
+                    )
             else:
                 frames.append(frame)
 
@@ -163,7 +163,7 @@ class StreamConnection(BaseConnection):
         outbox = self.outbox
         write = self.mechanism.write
 
-        while not self.closing:
+        while True:
             frames = await outbox.read()
             write(writer=self.writer, frames=frames)
 

@@ -421,6 +421,47 @@ async def test_req_rep_multiple_receivers(event_loop, endpoint):
 
 @use_all_transports
 @pytest.mark.asyncio
+async def test_req_router_multiple_receivers(event_loop, endpoint):
+    async with azmq.Context() as context:
+        req_socket = context.socket(azmq.REQ)
+        router_socket = context.socket(azmq.ROUTER)
+        router_socket_2 = context.socket(azmq.ROUTER)
+        router_sockets = {router_socket, router_socket_2}
+
+        try:
+            req_socket.identity = b'me'
+            req_socket.bind(endpoint)
+            router_socket.connect(endpoint)
+            router_socket_2.connect(endpoint)
+
+            multiplexer = Multiplexer()
+            multiplexer.add_socket(router_socket_2)
+            multiplexer.add_socket(router_socket)
+
+            await fivesec(req_socket.send_multipart([b'my', b'request']))
+            (socket, message), = await fivesec(multiplexer.recv_multipart())
+            assert message == [b'me', b'', b'my', b'request']
+            other_socket = next(iter(router_sockets - {socket}))
+
+            task = asyncio.ensure_future(req_socket.recv_multipart())
+
+            await fivesec(other_socket.send_multipart(
+                [b'me', b'', b'some', b'error']
+            ))
+            await fivesec(socket.send_multipart(
+                [b'me', b'', b'my', b'response']
+            ))
+            message = await fivesec(task)
+            assert message == [b'my', b'response']
+
+        finally:
+            req_socket.close()
+            router_socket.close()
+            router_socket_2.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
 async def test_pub_sub_unsubscribe(event_loop, endpoint):
     async with azmq.Context() as context:
         pub_socket = context.socket(azmq.PUB)
@@ -466,3 +507,93 @@ async def test_pub_sub_unsubscribe(event_loop, endpoint):
         finally:
             pub_socket.close()
             sub_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_xpub_sub_subscriptions(event_loop, endpoint):
+    async with azmq.Context() as context:
+        xpub_socket = context.socket(azmq.XPUB)
+        sub_socket = context.socket(azmq.SUB)
+        await sub_socket.subscribe(b'a')
+
+        try:
+            xpub_socket.bind(endpoint)
+            sub_socket.connect(endpoint)
+
+            message = await fivesec(xpub_socket.recv_multipart())
+            assert message == [b'\1a']
+            await sub_socket.unsubscribe(b'a')
+            message = await fivesec(xpub_socket.recv_multipart())
+            assert message == [b'\0a']
+
+        finally:
+            xpub_socket.close()
+            sub_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_xpub_xsub_subscriptions(event_loop, endpoint):
+    async with azmq.Context() as context:
+        xpub_socket = context.socket(azmq.XPUB)
+        xsub_socket = context.socket(azmq.XSUB)
+
+        try:
+            xpub_socket.bind(endpoint)
+            xsub_socket.connect(endpoint)
+
+            await xsub_socket.send_multipart([b'\1a'])
+            message = await fivesec(xpub_socket.recv_multipart())
+            assert message == [b'\1a']
+            await xsub_socket.send_multipart([b'\0a'])
+            message = await fivesec(xpub_socket.recv_multipart())
+            assert message == [b'\0a']
+
+        finally:
+            xpub_socket.close()
+            xsub_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_xpub_xsub_invalid_unsubscription(event_loop, endpoint):
+    async with azmq.Context() as context:
+        xpub_socket = context.socket(azmq.XPUB)
+        xsub_socket = context.socket(azmq.XSUB)
+
+        try:
+            xpub_socket.bind(endpoint)
+            xsub_socket.connect(endpoint)
+
+            # We force a protocol error by sending an unexpected message.
+            await xsub_socket._fair_send([b'\0b'])
+            await xsub_socket.send_multipart([b'\1a'])
+            message = await fivesec(xpub_socket.recv_multipart())
+            assert message == [b'\1a']
+
+        finally:
+            xpub_socket.close()
+            xsub_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_xpub_xsub_unknown_subscription_message(event_loop, endpoint):
+    async with azmq.Context() as context:
+        xpub_socket = context.socket(azmq.XPUB)
+        xsub_socket = context.socket(azmq.XSUB)
+
+        try:
+            xpub_socket.bind(endpoint)
+            xsub_socket.connect(endpoint)
+
+            # We force a protocol error by sending an unexpected message.
+            await xsub_socket._fair_send([b'\2x'])
+            await xsub_socket.send_multipart([b'\1a'])
+            message = await fivesec(xpub_socket.recv_multipart())
+            assert message == [b'\1a']
+
+        finally:
+            xpub_socket.close()
+            xsub_socket.close()

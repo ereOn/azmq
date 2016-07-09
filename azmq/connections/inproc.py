@@ -8,6 +8,7 @@ from ..constants import (
     PUB,
     XPUB,
 )
+from ..errors import ProtocolError
 from ..log import logger
 from .base import BaseConnection
 
@@ -38,17 +39,13 @@ class InprocConnection(BaseConnection):
 
         try:
             tasks = []
-
-            if self.inbox:
-                read_task = asyncio.ensure_future(self.read(), loop=self.loop)
-                tasks.append(read_task)
-
-            if self.outbox:
-                write_task = asyncio.ensure_future(
-                    self.write(),
-                    loop=self.loop,
-                )
-                tasks.append(write_task)
+            read_task = asyncio.ensure_future(self.read(), loop=self.loop)
+            tasks.append(read_task)
+            write_task = asyncio.ensure_future(
+                self.write(),
+                loop=self.loop,
+            )
+            tasks.append(write_task)
 
             try:
                 await self.await_until_closing(
@@ -71,7 +68,7 @@ class InprocConnection(BaseConnection):
             await self.channel.write(self.outbox.read_nowait())
 
     async def read(self):
-        while not self.closing:
+        while True:
             frames = await self.channel.read()
 
             if self.socket_type in {PUB, XPUB}:
@@ -81,13 +78,16 @@ class InprocConnection(BaseConnection):
                     await self.subscribe(frames[0][1:])
                 elif type_ == 0:
                     await self.unsubscribe(frames[0][1:])
-            else:
-                if not self._discard_incoming_messages:
-                    await self.inbox.write(frames)
+                else:
+                    raise ProtocolError(
+                        "Unexpected subscription message type (%s)." % type_,
+                    )
+            elif not self._discard_incoming_messages:
+                await self.inbox.write(frames)
 
     async def write(self):
         outbox = self.outbox
 
-        while not self.closing:
+        while True:
             frames = await outbox.read()
             await self.channel.write(frames)

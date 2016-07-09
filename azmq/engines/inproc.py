@@ -83,16 +83,17 @@ class InprocServerEngine(BaseEngine):
     async def handle_connection(self, channel):
         logger.debug("Connection from %s established.", channel.path)
 
-        async with InprocConnection(
-            channel=channel,
-            socket_type=self.socket_type,
-            identity=self.identity,
-            mechanism=self.mechanism,
-            on_ready=self.on_connection_ready.emit,
-            on_lost=self.on_connection_lost.emit,
-            on_failure=self.on_connection_failure,
-        ) as connection:
-            self.register_child(connection)
-            await connection.wait_closed()
+        async with channel:
+            async with InprocConnection(
+                channel=channel,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
+                on_ready=self.on_connection_ready.emit,
+                on_lost=self.on_connection_lost.emit,
+                on_failure=self.on_connection_failure,
+            ) as connection:
+                self.register_child(connection)
+                await connection.wait_closed()
 
         logger.debug("Connection from %s lost.", channel.path)

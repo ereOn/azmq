@@ -70,6 +70,7 @@ class BaseConnection(CompositeClosableAsyncObject):
             logger.debug("Connection was closed.")
             self.set_error(ex)
         except ProtocolError as ex:
+            logger.debug("Protocol error: %s", ex)
             self.set_error(ex)
         except (asyncio.IncompleteReadError, ConnectionError) as ex:
             logger.debug("Remote end was closed. Terminating connection.")
@@ -128,16 +129,12 @@ class BaseConnection(CompositeClosableAsyncObject):
         self.outbox = outbox
 
     @contextmanager
-    def discard_incoming_messages(self, clear=True):
+    def discard_incoming_messages(self):
         """
         Discard all incoming messages for the time of the context manager.
-
-        :param clear: A flag that, if set, also clears already received (but
-            not read) incoming messages from the inbox. Default is `True`.
         """
-        if clear:
-            # Flush any received message so far.
-            self.inbox.clear()
+        # Flush any received message so far.
+        self.inbox.clear()
 
         # This allows nesting of discard_incoming_messages() calls.
         previous = self._discard_incoming_messages
@@ -152,15 +149,13 @@ class BaseConnection(CompositeClosableAsyncObject):
     async def local_subscribe(self, topic):
         logger.debug("Subscribed to topic %r.", topic)
 
-        if self.outbox:
-            await self.outbox.write([b'\x01' + topic])
+        await self.outbox.write([b'\x01' + topic])
 
     @cancel_on_closing
     async def local_unsubscribe(self, topic):
         logger.debug("Unsubscribed from topic %r.", topic)
 
-        if self.outbox:
-            await self.outbox.write([b'\x00' + topic])
+        await self.outbox.write([b'\x00' + topic])
 
     async def subscribe(self, topic):
         self.subscriptions.append(topic)
@@ -168,20 +163,21 @@ class BaseConnection(CompositeClosableAsyncObject):
 
         # XPUB sockets must inform the application of the subscription.
         if self.socket_type == XPUB:
-            if self.inbox:
-                await self.inbox.write([b'\x01' + topic])
+            await self.inbox.write([b'\x01' + topic])
 
     async def unsubscribe(self, topic):
         try:
             self.subscriptions.remove(topic)
             logger.debug("Peer unsubscribed from topic %r.", topic)
         except ValueError:
-            pass
+            logger.debug(
+                "Ignoring invalid unsubscription from topic %r.",
+                topic,
+            )
         else:
             # XPUB sockets must inform the application of the unsubscription.
             if self.socket_type == XPUB:
-                if self.inbox:
-                    await self.inbox.write([b'\x00' + topic])
+                await self.inbox.write([b'\x00' + topic])
 
     async def unsubscribe_all(self):
         await asyncio.gather(
