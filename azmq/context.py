@@ -30,9 +30,7 @@ class Context(CompositeClosableAsyncObject):
 
     async def on_close(self):
         for server_future in self._inproc_servers.values():
-            if not server_future.cancelled():
-                if not server_future.done():
-                    server_future.cancel()
+            server_future.cancel()
 
         self._inproc_servers.clear()
 
@@ -74,12 +72,12 @@ class Context(CompositeClosableAsyncObject):
             self.unregister_child(result)
 
         self._zap_authenticator = zap_authenticator
-        self.register_child(zap_authenticator)
 
         if self.zap_client:
             self.zap_client.close()
 
         if self._zap_authenticator:
+            self.register_child(zap_authenticator)
             self.zap_client = ZAPClient(context=self)
             self.register_child(self.zap_client)
         else:
