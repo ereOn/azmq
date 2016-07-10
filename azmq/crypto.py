@@ -12,7 +12,7 @@ def libsodium_check(*args, **kwargs):
     Accepts any argument.
     """
     if not HAS_LIBSODIUM:
-        raise RuntimeError(
+        raise RuntimeError(  # pragma: no cover
             "No libsodium support installed. Please install on of the "
             "libsodium-enabled variants:\n- %s" % '\n- '.join([
                 'azmq[sodium]',
@@ -21,7 +21,7 @@ def libsodium_check(*args, **kwargs):
         )
 
 
-try:
+try:  # pragma: no cover
     from csodium import (
         crypto_box,
         crypto_box_keypair,
@@ -35,7 +35,7 @@ try:
     )
 
     HAS_LIBSODIUM = True
-except ImportError:
+except ImportError:  # pragma: no cover
     try:
         from pysodium import (
             crypto_box,
@@ -50,7 +50,7 @@ except ImportError:
         )
 
         HAS_LIBSODIUM = True
-    except ImportError:
+    except ImportError:  # pragma: no cover
         # Provides fake functions so that import statements always work.
         crypto_box = libsodium_check
         crypto_box_keypair = libsodium_check
