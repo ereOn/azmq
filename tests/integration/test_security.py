@@ -237,3 +237,36 @@ async def test_curve_invalid_key(event_loop):
         finally:
             req_socket.close()
             rep_socket.close()
+
+
+@requires_libsodium
+@pytest.mark.asyncio
+async def test_incompatible_mechanisms(event_loop):
+    async with azmq.Context() as context:
+        c_public_key, c_secret_key = curve_gen_keypair()
+        s_public_key, s_secret_key = curve_gen_keypair()
+        authenticator = ZAPAuthenticator(context)
+        authenticator.add_authorized_key(key=c_public_key)
+        context.set_zap_authenticator(authenticator)
+        req_socket = context.socket(
+            azmq.REQ,
+            mechanism=CurveClient(
+                public_key=c_public_key,
+                secret_key=c_secret_key,
+                server_key=s_public_key,
+            ),
+        )
+        rep_socket = context.socket(azmq.REP)
+
+        try:
+            req_socket.connect(ENDPOINT)
+            rep_socket.bind(ENDPOINT)
+
+            await req_socket.send_multipart([b'my', b'request'])
+
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(rep_socket.recv_multipart(), 0.25)
+
+        finally:
+            req_socket.close()
+            rep_socket.close()

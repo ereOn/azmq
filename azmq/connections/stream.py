@@ -21,6 +21,11 @@ from ..common import (
 from .base import BaseConnection
 
 
+PING_PERIOD = 5
+PING_TIMEOUT = PING_PERIOD * 3
+MAX_PENDING_PINGS = 3
+
+
 class StreamConnection(BaseConnection):
     """
     Implements a ZMTP connection that works on a pair of streams.
@@ -32,13 +37,13 @@ class StreamConnection(BaseConnection):
         self.address = address
         self.zap_client = zap_client
         self.version = None
-        self.ping_period = 5
-        self.ping_timeout = self.ping_period * 3
+        self.ping_period = PING_PERIOD
+        self.ping_timeout = PING_TIMEOUT
         self._send_ping_timer = None
         self._expect_ping_timeout = None
         self._base_ping_context = random.getrandbits(32)
         self._pending_ping_contexts = set()
-        self._max_pending_pings = 3
+        self._max_pending_pings = MAX_PENDING_PINGS
         self._nonce = 0
 
     async def on_close(self):
