@@ -44,7 +44,9 @@ class InprocClientEngine(BaseEngine):
                         on_failure=self.on_connection_failure,
                     ) as connection:
                         self.register_child(connection)
-                        return await connection.wait_closed()
+                        await connection.wait_closed()
+
+                    return connection.get_error()
             finally:
                 logger.debug(
                     "Connection to %s closed.",

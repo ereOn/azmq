@@ -18,16 +18,17 @@ class AsyncObject(object):
         self.loop = loop or asyncio.get_event_loop()
 
 
-def cancel_on_closing(coro):
+def cancel_on_closing(func):
     """
-    Automatically cancels a coroutine when the defining instance gets closed.
+    Automatically cancels a function or coroutine when the defining instance
+    gets closed.
 
-    :param coro: The coroutine to cancel on closing.
-    :returns: A decorated coroutine.
+    :param func: The function to cancel on closing.
+    :returns: A decorated function or coroutine.
     """
-    @wraps(coro)
+    @wraps(func)
     async def wrapper(self, *args, **kwargs):
-        return await self.await_until_closing(coro(self, *args, **kwargs))
+        return await self.await_until_closing(func(self, *args, **kwargs))
 
     return wrapper
 

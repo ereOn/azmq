@@ -14,7 +14,16 @@ from azmq.mechanisms import (
     PlainServer,
 )
 from azmq.crypto import curve_gen_keypair
-from azmq.zap import ZAPAuthenticator
+from azmq.errors import (
+    ZAPAuthenticationFailure,
+    ZAPInternalError,
+    ZAPTemporaryError,
+)
+from azmq.zap import (
+    BaseZAPAuthenticator,
+    ZAPAuthenticator,
+    ZAPClient,
+)
 
 from ..conftest import requires_libsodium
 
@@ -270,3 +279,69 @@ async def test_incompatible_mechanisms(event_loop):
         finally:
             req_socket.close()
             rep_socket.close()
+
+
+@pytest.mark.asyncio
+async def test_zap_temporary_error(event_loop):
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            raise ZAPTemporaryError("Some error")
+
+    async with azmq.Context() as context:
+        async with MyZAPAuthenticator(context=context):
+            async with ZAPClient(context=context) as zap_client:
+                with pytest.raises(ZAPTemporaryError):
+                    await asyncio.wait_for(
+                        zap_client.authenticate(
+                            domain='domain',
+                            address='127.0.0.1',
+                            identity=b'bob',
+                            mechanism=b'CURVE',
+                            credentials=[b'mycred', b'value'],
+                        ),
+                        1,
+                    )
+
+
+@pytest.mark.asyncio
+async def test_zap_authentication_failure(event_loop):
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            raise ZAPAuthenticationFailure("Some error")
+
+    async with azmq.Context() as context:
+        async with MyZAPAuthenticator(context=context):
+            async with ZAPClient(context=context) as zap_client:
+                with pytest.raises(ZAPAuthenticationFailure):
+                    await asyncio.wait_for(
+                        zap_client.authenticate(
+                            domain='domain',
+                            address='127.0.0.1',
+                            identity=b'bob',
+                            mechanism=b'CURVE',
+                            credentials=[b'mycred', b'value'],
+                        ),
+                        1,
+                    )
+
+
+@pytest.mark.asyncio
+async def test_zap_internal_error(event_loop):
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            raise RuntimeError
+
+    async with azmq.Context() as context:
+        async with MyZAPAuthenticator(context=context):
+            async with ZAPClient(context=context) as zap_client:
+                with pytest.raises(ZAPInternalError):
+                    await asyncio.wait_for(
+                        zap_client.authenticate(
+                            domain='domain',
+                            address='127.0.0.1',
+                            identity=b'bob',
+                            mechanism=b'CURVE',
+                            credentials=[b'mycred', b'value'],
+                        ),
+                        1,
+                    )

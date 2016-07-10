@@ -53,7 +53,9 @@ class TCPClientEngine(BaseEngine):
                 loop=self.loop,
             ) as connection:
                 self.register_child(connection)
-                return await connection.wait_closed()
+                await connection.wait_closed()
+
+            return connection.get_error()
         finally:
             logger.debug(
                 "Connection to %s:%s closed.",

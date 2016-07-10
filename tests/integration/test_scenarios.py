@@ -8,7 +8,11 @@ import pytest
 import azmq
 
 from azmq.multiplexer import Multiplexer
-from azmq.errors import ProtocolError
+from azmq.errors import (
+    InvalidOperation,
+    ProtocolError,
+    UnsupportedSchemeError,
+)
 
 
 from ..conftest import use_all_transports
@@ -597,3 +601,76 @@ async def test_xpub_xsub_unknown_subscription_message(event_loop, endpoint):
         finally:
             xpub_socket.close()
             xsub_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_req_rep_invalid_binds(event_loop, endpoint):
+    async with azmq.Context() as context:
+        req_socket = context.socket(azmq.REQ)
+        rep_socket = context.socket(azmq.REP)
+
+        try:
+            # We trigger all kind of binding errors: invalid endpoints,
+            # duplicate ports, and so on.
+            req_socket.bind('ipc:///non-existing/path')
+            req_socket.bind(endpoint)
+
+            # This one is special and fails immediately.
+            with pytest.raises(UnsupportedSchemeError):
+                req_socket.bind('foo://some-endpoint')
+
+            # This bind is valid and the test should work nonetheless.
+            req_socket.bind(endpoint)
+            rep_socket.connect(endpoint)
+
+            await fivesec(req_socket.send_multipart([b'my', b'request']))
+            message = await fivesec(rep_socket.recv_multipart())
+            assert message == [b'my', b'request']
+            await fivesec(rep_socket.send_multipart([b'my', b'response']))
+            message = await req_socket.recv_multipart()
+            assert message == [b'my', b'response']
+
+        finally:
+            req_socket.close()
+            rep_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_req_invalid_operation(event_loop, endpoint):
+    async with azmq.Context() as context:
+        async with context.socket(azmq.REQ) as req_socket:
+            req_socket.connect(endpoint)
+
+            await fivesec(req_socket.send_multipart([b'my', b'request']))
+
+            with pytest.raises(InvalidOperation):
+                await fivesec(req_socket.send_multipart([b'my', b'request']))
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_rep_invalid_operation(event_loop, endpoint):
+    async with azmq.Context() as context:
+        req_socket = context.socket(azmq.REQ)
+        rep_socket = context.socket(azmq.REP)
+
+        try:
+            req_socket.bind(endpoint)
+            rep_socket.connect(endpoint)
+
+            await fivesec(req_socket.send_multipart([b'my', b'request']))
+            message = await fivesec(rep_socket.recv_multipart())
+            assert message == [b'my', b'request']
+
+            with pytest.raises(InvalidOperation):
+                await fivesec(rep_socket.recv_multipart())
+
+            await fivesec(rep_socket.send_multipart([b'my', b'response']))
+            message = await req_socket.recv_multipart()
+            assert message == [b'my', b'response']
+
+        finally:
+            req_socket.close()
+            rep_socket.close()

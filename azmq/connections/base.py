@@ -84,6 +84,9 @@ class BaseConnection(CompositeClosableAsyncObject):
     def set_error(self, exception):
         self._error = exception
 
+    def get_error(self):
+        return self._error
+
     @property
     def error(self):
         return self._error

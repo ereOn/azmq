@@ -47,10 +47,8 @@ class StreamConnection(BaseConnection):
         self._nonce = 0
 
     async def on_close(self):
-        try:
-            return await super().on_close()
-        finally:
-            self.writer.close()
+        self.writer.close()
+        return await super().on_close()
 
     async def on_run(self):
         self.version = await self._greeting(

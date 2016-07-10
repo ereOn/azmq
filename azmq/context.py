@@ -122,4 +122,4 @@ class Context(CompositeClosableAsyncObject):
             server = server_future.result()
             server_future = None
 
-        return server.create_channel(path)
+        return await server.create_channel(path)

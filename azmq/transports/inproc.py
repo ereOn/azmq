@@ -62,10 +62,8 @@ class InprocServer(CompositeClosableAsyncObject):
 
         await super().on_close()
 
-    def create_channel(self, path):
-        if self.closing:
-            raise asyncio.CancelledError()
-
+    @cancel_on_closing
+    async def create_channel(self, path):
         left = Channel(path=path, loop=self.loop)
         self.register_child(left)
         right = Channel(path=path, loop=self.loop)
@@ -75,8 +73,8 @@ class InprocServer(CompositeClosableAsyncObject):
         task = asyncio.ensure_future(self._handler(right))
         self._tasks.append(task)
 
+        @task.add_done_callback
         def remove_task(future):
             self._tasks.remove(task)
 
-        task.add_done_callback(remove_task)
         return left

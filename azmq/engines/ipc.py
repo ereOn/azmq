@@ -11,10 +11,10 @@ from ..log import logger
 
 from .base import BaseEngine
 
-if sys.platform == 'win32':
+if sys.platform == 'win32':  # pragma: no cover
     from .win32 import start_pipe_server as start_ipc_server
     from .win32 import open_pipe_connection as open_ipc_connection
-else:
+else:  # pragma: no cover
     from asyncio import start_unix_server
 
     async def start_ipc_server(*args, **kwargs):
@@ -42,23 +42,26 @@ class IPCClientEngine(BaseEngine):
 
         logger.debug("Connection to %s established.", self.path)
 
-        async with StreamConnection(
-            reader=reader,
-            writer=writer,
-            address=self.path,
-            zap_client=self.zap_client,
-            socket_type=self.socket_type,
-            identity=self.identity,
-            mechanism=self.mechanism,
-            on_ready=self.on_connection_ready.emit,
-            on_lost=self.on_connection_lost.emit,
-            on_failure=self.on_connection_failure,
-            loop=self.loop,
-        ) as connection:
-            self.register_child(connection)
-            await connection.wait_closed()
+        try:
+            async with StreamConnection(
+                reader=reader,
+                writer=writer,
+                address=self.path,
+                zap_client=self.zap_client,
+                socket_type=self.socket_type,
+                identity=self.identity,
+                mechanism=self.mechanism,
+                on_ready=self.on_connection_ready.emit,
+                on_lost=self.on_connection_lost.emit,
+                on_failure=self.on_connection_failure,
+                loop=self.loop,
+            ) as connection:
+                self.register_child(connection)
+                await connection.wait_closed()
 
-        logger.debug("Connection to %s closed.", self.path)
+            return connection.get_error()
+        finally:
+            logger.debug("Connection to %s closed.", self.path)
 
 
 class IPCServerEngine(BaseEngine):

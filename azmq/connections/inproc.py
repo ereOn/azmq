@@ -24,6 +24,11 @@ class InprocConnection(BaseConnection):
     ):
         super().__init__(**kwargs)
         self.channel = channel
+        self.register_child(self.channel)
+
+    async def on_close(self):
+        self.channel.close()
+        return await super().on_close()
 
     async def on_run(self):
         await self.channel.write(self.get_metadata())
