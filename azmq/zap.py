@@ -216,7 +216,7 @@ class BaseZAPAuthenticator(CompositeClosableAsyncObject):
         """
         Handle a ZAP request.
         """
-        raise NotImplementedError
+        raise NotImplementedError  # pragma: no cover
 
 
 class ZAPAuthenticator(BaseZAPAuthenticator):

@@ -23,6 +23,7 @@ from azmq.zap import (
     BaseZAPAuthenticator,
     ZAPAuthenticator,
     ZAPClient,
+    ZAP_INPROC_ENDPOINT,
 )
 
 from ..conftest import requires_libsodium
@@ -282,6 +283,30 @@ async def test_incompatible_mechanisms(event_loop):
 
 
 @pytest.mark.asyncio
+async def test_zap_successful_authentication(event_loop):
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            return 'bob', {b'foo': b'bar'}
+
+    async with azmq.Context() as context:
+        async with MyZAPAuthenticator(context=context):
+            async with ZAPClient(context=context) as zap_client:
+                username, metadata = await asyncio.wait_for(
+                    zap_client.authenticate(
+                        domain='domain',
+                        address='127.0.0.1',
+                        identity=b'bob',
+                        mechanism=b'CURVE',
+                        credentials=[b'mycred', b'value'],
+                    ),
+                    1,
+                )
+
+    assert username == 'bob'
+    assert metadata == {b'foo': b'bar'}
+
+
+@pytest.mark.asyncio
 async def test_zap_temporary_error(event_loop):
     class MyZAPAuthenticator(BaseZAPAuthenticator):
         async def on_request(self, *args, **kwargs):
@@ -345,3 +370,31 @@ async def test_zap_internal_error(event_loop):
                         ),
                         1,
                     )
+
+
+@pytest.mark.asyncio
+async def test_zap_successful_authentication_after_invalid_request(event_loop):
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            return 'bob', {b'foo': b'bar'}
+
+    async with azmq.Context() as context:
+        async with MyZAPAuthenticator(context=context):
+            async with ZAPClient(context=context) as zap_client:
+                async with context.socket(azmq.DEALER) as socket:
+                    socket.connect(ZAP_INPROC_ENDPOINT)
+                    await socket.send_multipart([b'invalid', b'data'])
+
+                    username, metadata = await asyncio.wait_for(
+                        zap_client.authenticate(
+                            domain='domain',
+                            address='127.0.0.1',
+                            identity=b'bob',
+                            mechanism=b'CURVE',
+                            credentials=[b'mycred', b'value'],
+                        ),
+                        1,
+                    )
+
+    assert username == 'bob'
+    assert metadata == {b'foo': b'bar'}
