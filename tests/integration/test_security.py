@@ -398,3 +398,36 @@ async def test_zap_successful_authentication_after_invalid_request(event_loop):
 
     assert username == 'bob'
     assert metadata == {b'foo': b'bar'}
+
+
+@pytest.mark.asyncio
+async def test_zap_invalid_authenticator_response(event_loop):
+    async with azmq.Context() as context:
+        async with context.socket(azmq.ROUTER) as socket:
+            async with ZAPClient(context=context) as zap_client:
+                socket.bind(ZAP_INPROC_ENDPOINT)
+
+                task = asyncio.ensure_future(zap_client.authenticate(
+                    domain='domain',
+                    address='127.0.0.1',
+                    identity=b'bob',
+                    mechanism=b'CURVE',
+                    credentials=[b'mycred', b'value'],
+                ))
+                identity, *_ = await asyncio.wait_for(
+                    socket.recv_multipart(),
+                    1,
+                )
+                await socket.send_multipart([
+                    identity,
+                    b'',
+                    b'invalid',
+                    b'message',
+                ])
+
+                assert not task.done()
+
+                with pytest.raises(asyncio.TimeoutError):
+                    await asyncio.wait_for(task, 0.25)
+
+                task.cancel()
