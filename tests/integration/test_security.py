@@ -552,6 +552,7 @@ async def test_zap_pending_authentication(event_loop):
                         credentials=[b'mycred', b'value'],
                     ),
                 )
+                zap_client.close()
 
             # Now the request can be fullfilled, even if its too late.
             event.set()
