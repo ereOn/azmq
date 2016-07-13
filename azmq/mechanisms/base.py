@@ -22,9 +22,6 @@ class Mechanism(object):
     name = None
     as_server = False
 
-    def __str__(self):
-        return self.name.decode()
-
     @classmethod
     def _metadata_to_buffers(cls, metadata):
         return metadata_to_buffers(metadata)

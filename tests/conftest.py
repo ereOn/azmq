@@ -6,6 +6,8 @@ import asyncio
 import pytest
 import sys
 
+from io import BytesIO
+
 from azmq.crypto import HAS_LIBSODIUM
 
 
@@ -48,3 +50,21 @@ requires_libsodium = pytest.mark.skipif(
     not HAS_LIBSODIUM,
     reason="No libsodium support installed.",
 )
+
+
+@pytest.fixture
+def reader():
+    reader = BytesIO()
+
+    async def readexactly(count):
+        return reader.read(count)
+
+    reader.readexactly = readexactly
+    return reader
+
+
+@pytest.fixture
+def writer():
+    writer = BytesIO()
+
+    return writer

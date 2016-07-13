@@ -62,7 +62,7 @@ class ZAPClient(CompositeClosableAsyncObject):
                 status_code = int(frames[3].decode('ascii'))
                 status_text = frames[4].decode('utf-8')
                 user_id = frames[5].decode('utf-8')
-                metadata = buffer_to_metadata(frames[6]) if frames[6] else None
+                metadata = buffer_to_metadata(frames[6]) if frames[6] else {}
             except Exception as ex:
                 logger.warning(
                     "Unexpected error while handling ZAP response (%r): %s."

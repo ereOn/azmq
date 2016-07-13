@@ -16,6 +16,7 @@ from azmq.mechanisms import (
 from azmq.crypto import curve_gen_keypair
 from azmq.errors import (
     ZAPAuthenticationFailure,
+    ZAPError,
     ZAPInternalError,
     ZAPTemporaryError,
 )
@@ -315,7 +316,7 @@ async def test_zap_temporary_error(event_loop):
     async with azmq.Context() as context:
         async with MyZAPAuthenticator(context=context):
             async with ZAPClient(context=context) as zap_client:
-                with pytest.raises(ZAPTemporaryError):
+                with pytest.raises(ZAPTemporaryError) as error:
                     await asyncio.wait_for(
                         zap_client.authenticate(
                             domain='domain',
@@ -326,6 +327,9 @@ async def test_zap_temporary_error(event_loop):
                         ),
                         1,
                     )
+
+    assert error.value.text == 'Some error'
+    assert error.value.code == 300
 
 
 @pytest.mark.asyncio
@@ -337,7 +341,7 @@ async def test_zap_authentication_failure(event_loop):
     async with azmq.Context() as context:
         async with MyZAPAuthenticator(context=context):
             async with ZAPClient(context=context) as zap_client:
-                with pytest.raises(ZAPAuthenticationFailure):
+                with pytest.raises(ZAPAuthenticationFailure) as error:
                     await asyncio.wait_for(
                         zap_client.authenticate(
                             domain='domain',
@@ -348,6 +352,8 @@ async def test_zap_authentication_failure(event_loop):
                         ),
                         1,
                     )
+
+    assert error.value.code == 400
 
 
 @pytest.mark.asyncio
@@ -359,7 +365,7 @@ async def test_zap_internal_error(event_loop):
     async with azmq.Context() as context:
         async with MyZAPAuthenticator(context=context):
             async with ZAPClient(context=context) as zap_client:
-                with pytest.raises(ZAPInternalError):
+                with pytest.raises(ZAPInternalError) as error:
                     await asyncio.wait_for(
                         zap_client.authenticate(
                             domain='domain',
@@ -370,6 +376,33 @@ async def test_zap_internal_error(event_loop):
                         ),
                         1,
                     )
+
+    assert error.value.code == 500
+
+
+@pytest.mark.asyncio
+async def test_zap_custom_error(event_loop):
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            raise ZAPError('some error', 408)
+
+    async with azmq.Context() as context:
+        async with MyZAPAuthenticator(context=context):
+            async with ZAPClient(context=context) as zap_client:
+                with pytest.raises(ZAPError) as error:
+                    await asyncio.wait_for(
+                        zap_client.authenticate(
+                            domain='domain',
+                            address='127.0.0.1',
+                            identity=b'bob',
+                            mechanism=b'CURVE',
+                            credentials=[b'mycred', b'value'],
+                        ),
+                        1,
+                    )
+
+    assert error.value.text == 'some error'
+    assert error.value.code == 408
 
 
 @pytest.mark.asyncio
@@ -402,9 +435,13 @@ async def test_zap_successful_authentication_after_invalid_request(event_loop):
 
 @pytest.mark.asyncio
 async def test_zap_invalid_authenticator_response(event_loop):
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            return 'bob', {b'foo': b'bar'}
+
     async with azmq.Context() as context:
-        async with context.socket(azmq.ROUTER) as socket:
-            async with ZAPClient(context=context) as zap_client:
+        async with ZAPClient(context=context) as zap_client:
+            async with context.socket(azmq.ROUTER) as socket:
                 socket.bind(ZAP_INPROC_ENDPOINT)
 
                 task = asyncio.ensure_future(zap_client.authenticate(
@@ -426,8 +463,140 @@ async def test_zap_invalid_authenticator_response(event_loop):
                 ])
 
                 assert not task.done()
-
-                with pytest.raises(asyncio.TimeoutError):
-                    await asyncio.wait_for(task, 0.25)
-
                 task.cancel()
+
+            async with MyZAPAuthenticator(context=context):
+                username, metadata = await asyncio.wait_for(
+                    zap_client.authenticate(
+                        domain='domain',
+                        address='127.0.0.1',
+                        identity=b'bob',
+                        mechanism=b'CURVE',
+                        credentials=[b'mycred', b'value'],
+                    ),
+                    1,
+                )
+    assert username == 'bob'
+    assert metadata == {b'foo': b'bar'}
+
+
+@pytest.mark.asyncio
+async def test_zap_unknown_request(event_loop):
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            return 'bob', {b'foo': b'bar'}
+
+    async with azmq.Context() as context:
+        async with ZAPClient(context=context) as zap_client:
+            async with context.socket(azmq.ROUTER) as socket:
+                socket.bind(ZAP_INPROC_ENDPOINT)
+
+                task = asyncio.ensure_future(zap_client.authenticate(
+                    domain='domain',
+                    address='127.0.0.1',
+                    identity=b'bob',
+                    mechanism=b'CURVE',
+                    credentials=[b'mycred', b'value'],
+                ))
+                identity, *_ = await asyncio.wait_for(
+                    socket.recv_multipart(),
+                    1,
+                )
+                await socket.send_multipart([
+                    identity,
+                    b'',
+                    b'1.0',
+                    b'my_request',
+                    b'200',
+                    b'all good',
+                    b'userid',
+                    b'',
+                ])
+
+                assert not task.done()
+                task.cancel()
+
+            async with MyZAPAuthenticator(context=context):
+                username, metadata = await asyncio.wait_for(
+                    zap_client.authenticate(
+                        domain='domain',
+                        address='127.0.0.1',
+                        identity=b'bob',
+                        mechanism=b'CURVE',
+                        credentials=[b'mycred', b'value'],
+                    ),
+                    1,
+                )
+    assert username == 'bob'
+    assert metadata == {b'foo': b'bar'}
+
+
+@pytest.mark.asyncio
+async def test_zap_pending_authentication(event_loop):
+    event = asyncio.Event(loop=event_loop)
+
+    class MyZAPAuthenticator(BaseZAPAuthenticator):
+        async def on_request(self, *args, **kwargs):
+            await event.wait()
+            return 'bob', {b'foo': b'bar'}
+
+    async with azmq.Context() as context:
+        async with MyZAPAuthenticator(context=context):
+            async with ZAPClient(context=context) as zap_client:
+                task = asyncio.ensure_future(
+                    zap_client.authenticate(
+                        domain='domain',
+                        address='127.0.0.1',
+                        identity=b'bob',
+                        mechanism=b'CURVE',
+                        credentials=[b'mycred', b'value'],
+                    ),
+                )
+
+            # Now the request can be fullfilled, even if its too late.
+            event.set()
+            assert task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_zap_default_authenticator_authentication_failure(event_loop):
+    async with azmq.Context() as context:
+        async with ZAPAuthenticator(context=context) as authenticator:
+            authenticator.allow('192.168.0.1')
+
+            async with ZAPClient(context=context) as zap_client:
+                with pytest.raises(ZAPAuthenticationFailure) as error:
+                    await asyncio.wait_for(
+                        zap_client.authenticate(
+                            domain='domain',
+                            address='127.0.0.1',
+                            identity=b'bob',
+                            mechanism=b'CURVE',
+                            credentials=[b'mycred', b'value'],
+                        ),
+                        1,
+                    )
+
+    assert error.value.code == 400
+
+
+@pytest.mark.asyncio
+async def test_zap_default_authenticator_authentication_success(event_loop):
+    async with azmq.Context() as context:
+        async with ZAPAuthenticator(context=context) as authenticator:
+            authenticator.deny('192.168.0.1')
+
+            async with ZAPClient(context=context) as zap_client:
+                username, metadata = await asyncio.wait_for(
+                    zap_client.authenticate(
+                        domain='domain',
+                        address='127.0.0.1',
+                        identity=b'bob',
+                        mechanism=b'NULL',
+                        credentials=[],
+                    ),
+                    1,
+                )
+
+    assert username == ''
+    assert metadata == {}

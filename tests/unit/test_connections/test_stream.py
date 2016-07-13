@@ -4,30 +4,10 @@ Unit tests for the stream connection class.
 
 import pytest
 
-from io import BytesIO
-
 from mock import MagicMock
 
 from azmq.connections.stream import StreamConnection
 from azmq.errors import ProtocolError
-
-
-@pytest.fixture
-def reader():
-    reader = BytesIO()
-
-    async def readexactly(count):
-        return reader.read(count)
-
-    reader.readexactly = readexactly
-    return reader
-
-
-@pytest.fixture
-def writer():
-    writer = BytesIO()
-
-    return writer
 
 
 @pytest.yield_fixture
