@@ -45,7 +45,7 @@ def buffer_to_metadata(buffer):
         name_size = struct.unpack_from('B', buffer, offset)[0]
         offset += 1
 
-        if name_size + 4 > size:
+        if name_size > size - 4:
             raise ProtocolError(
                 "Invalid name size in metadata",
                 fatal=True,
@@ -57,7 +57,7 @@ def buffer_to_metadata(buffer):
         value_size = struct.unpack_from('!I', buffer, offset)[0]
         offset += 4
 
-        if value_size > size:
+        if value_size > size - name_size - 5:
             raise ProtocolError(
                 "Invalid value size in metadata",
                 fatal=True,
