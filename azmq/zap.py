@@ -44,12 +44,6 @@ class ZAPClient(CompositeClosableAsyncObject):
         self._request_ids = count()
         self._run_task = asyncio.ensure_future(self.run())
 
-    async def on_close(self):
-        for future in list(self._requests.values()):
-            future.cancel()
-
-        await super().on_close()
-
     @cancel_on_closing
     async def run(self):
         while True:
@@ -96,6 +90,7 @@ class ZAPClient(CompositeClosableAsyncObject):
         request_id = next(self._request_ids)
         return '%x' % request_id
 
+    @cancel_on_closing
     async def authenticate(
         self,
         domain,

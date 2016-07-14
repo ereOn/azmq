@@ -532,34 +532,6 @@ async def test_zap_unknown_request(event_loop):
 
 
 @pytest.mark.asyncio
-async def test_zap_pending_authentication(event_loop):
-    event = asyncio.Event(loop=event_loop)
-
-    class MyZAPAuthenticator(BaseZAPAuthenticator):
-        async def on_request(self, *args, **kwargs):
-            await event.wait()
-            return 'bob', {b'foo': b'bar'}
-
-    async with azmq.Context() as context:
-        async with MyZAPAuthenticator(context=context):
-            async with ZAPClient(context=context) as zap_client:
-                task = asyncio.ensure_future(
-                    zap_client.authenticate(
-                        domain='domain',
-                        address='127.0.0.1',
-                        identity=b'bob',
-                        mechanism=b'CURVE',
-                        credentials=[b'mycred', b'value'],
-                    ),
-                )
-                zap_client.close()
-
-            # Now the request can be fullfilled, even if its too late.
-            event.set()
-            assert task.cancelled()
-
-
-@pytest.mark.asyncio
 async def test_zap_default_authenticator_authentication_failure(event_loop):
     async with azmq.Context() as context:
         async with ZAPAuthenticator(context=context) as authenticator:
