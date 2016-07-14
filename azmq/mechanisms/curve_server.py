@@ -28,14 +28,10 @@ from .base import Mechanism
 class CurveServer(object):
     @requires_libsodium
     def __init__(self, public_key=None, secret_key=None):
-        if public_key or secret_key:
-            self.set_permanent_keypair(
-                public_key=public_key,
-                secret_key=secret_key,
-            )
-        else:
-            self.public_key = None
-            self.secret_key = None
+        self.set_permanent_keypair(
+            public_key=public_key,
+            secret_key=secret_key,
+        )
 
     def set_permanent_keypair(self, public_key, secret_key):
         assert public_key and len(public_key) == 32, (
@@ -164,6 +160,13 @@ class CurveServerMechanism(Mechanism):
             reader=reader,
             name=b'INITIATE',
         )
+
+        if len(buffer) < 104:
+            raise ProtocolError(
+                "Invalid CURVE INITIATE message size (%s)" % len(buffer),
+                fatal=True,
+            )
+
         cookie_nonce = buffer[:16]
         cookie = buffer[16:96]
         nonce = buffer[96:104]
@@ -182,22 +185,32 @@ class CurveServerMechanism(Mechanism):
         if cbuffer[:32] != self.rcp:
             raise ProtocolError("Invalid cookie.", fatal=True)
 
-        vbuffer = crypto_box_open_afternm(
-            box,
-            nonce=b'CurveZMQINITIATE' + nonce,
-            k=self.kp,
-        )
+        try:
+            vbuffer = crypto_box_open_afternm(
+                box,
+                nonce=b'CurveZMQINITIATE' + nonce,
+                k=self.kp,
+            )
+        except ValueError:
+            raise ProtocolError("Invalid vouch.", fatal=True)
+
+        if len(vbuffer) < 48:
+            raise ProtocolError("Invalid vouch size.", fatal=True)
+
         self.rc = vbuffer[:32]
         vouch_nonce = vbuffer[32:48]
         vouch_box = vbuffer[48:128]
         raw_metadata = vbuffer[128:]
 
-        plain_vouch = crypto_box_open(
-            vouch_box,
-            nonce=b'VOUCH---' + vouch_nonce,
-            pk=self.rc,
-            sk=self.sp,
-        )
+        try:
+            plain_vouch = crypto_box_open(
+                vouch_box,
+                nonce=b'VOUCH---' + vouch_nonce,
+                pk=self.rc,
+                sk=self.sp,
+            )
+        except ValueError:
+            raise ProtocolError("Invalid vouch.", fatal=True)
 
         if self.rcp + self.c != plain_vouch:
             raise ProtocolError(
@@ -242,7 +255,7 @@ class CurveServerMechanism(Mechanism):
                 ),
                 60,
             )
-        except asyncio.TimeoutError:
+        except asyncio.TimeoutError:  # pragma: no cover
             raise ProtocolError(
                 "Did not a receive an INITIATE command after 60 "
                 "seconds. Aborting connection.",
