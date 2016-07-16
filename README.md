@@ -1,5 +1,4 @@
 [![Build Status](https://travis-ci.org/ereOn/azmq.svg?branch=master)](https://travis-ci.org/ereOn/azmq)
-[![Coverage Status](https://coveralls.io/repos/ereOn/azmq/badge.svg?branch=master&service=github)](https://coveralls.io/github/ereOn/azmq?branch=master)
 [![Documentation Status](https://readthedocs.org/projects/azmq/badge/?version=latest)](http://azmq.readthedocs.org/en/latest/?badge=latest)
 [![PyPI](https://img.shields.io/pypi/pyversions/azmq.svg)](https://pypi.python.org/pypi/azmq/1.0.0)
 [![PyPi version](https://img.shields.io/pypi/v/azmq.svg)](https://pypi.python.org/pypi/azmq/1.0.0)
