@@ -323,7 +323,7 @@ class Socket(CompositeClosableAsyncObject):
         if not peer:
             # If the peer is not an outgoing peer, we remove its associated
             # engine so it gets removed when its inbox becomes empty.
-            peer = next(
+            peer = next(  # pragma: no cover
                 p for p in self._peers if p.connection is connection,
             )
             peer.engine = None
@@ -445,7 +445,7 @@ class Socket(CompositeClosableAsyncObject):
                 for task in tasks:
                     task.cancel()
 
-            peer = next(
+            peer = next(  # pragma: no cover
                 (
                     p
                     for task, p in zip(tasks, peers)
@@ -589,7 +589,7 @@ class Socket(CompositeClosableAsyncObject):
         )
 
     @cancel_on_closing
-    async def _no_send(self):
+    async def _no_send(self, *args):
         raise AssertionError(
             "A %s socket cannot send." % self.socket_type.decode(),
         )
@@ -618,9 +618,8 @@ class Socket(CompositeClosableAsyncObject):
 
     @cancel_on_closing
     async def _send_xsub(self, frames):
-        first_frame = frames[0]
-
-        if first_frame:
+        if frames and frames[0]:
+            first_frame = frames[0]
             type_ = first_frame[0]
 
             if type_ == 0:
@@ -647,7 +646,8 @@ class Socket(CompositeClosableAsyncObject):
 
             try:
                 await peer.outbox.write(frames)
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # pragma: no cover
+                # This is impossible to test reliably.
                 peer = None
 
     @cancel_on_closing
@@ -655,13 +655,14 @@ class Socket(CompositeClosableAsyncObject):
         # We only receive from the first connected peer.
         peer = None
 
-        while not peer:
+        while not peer:  # pragma: no branch
             await self._peers.wait_not_empty()
             peer = self._peers[0]
 
             try:
                 return await peer.inbox.read()
-            except asyncio.CancelledError:
+            except asyncio.CancelledError:  # pragma: no cover
+                # This is impossible to test reliably.
                 peer = None
 
     @cancel_on_closing
