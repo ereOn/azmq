@@ -14,6 +14,8 @@ from azmq.crypto import (
 from azmq.mechanisms.curve_server import CurveServer
 from azmq.errors import ProtocolError
 
+from ...conftest import requires_libsodium
+
 
 @pytest.fixture
 def mechanism():
@@ -35,6 +37,7 @@ def mechanism():
     return mechanism
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_hello_invalid(reader, mechanism):
     reader.write(b'\x04\x06\x05HELLO')
@@ -44,6 +47,7 @@ async def test_read_curve_hello_invalid(reader, mechanism):
         await mechanism._read_curve_hello(reader=reader)
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_hello_invalid_version(reader, mechanism):
     reader.write(b'\x04\xc8\x05HELLO' + b'\0' * 194)
@@ -53,6 +57,7 @@ async def test_read_curve_hello_invalid_version(reader, mechanism):
         await mechanism._read_curve_hello(reader=reader)
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_hello_invalid_box(reader, mechanism):
     reader.write(b'\x04\xc8\x05HELLO\1\0' + b'\0' * 192)
@@ -62,6 +67,7 @@ async def test_read_curve_hello_invalid_box(reader, mechanism):
         await mechanism._read_curve_hello(reader=reader)
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_initiate_invalid(reader, mechanism):
     reader.write(b'\x04\x09\x08INITIATE')
@@ -74,6 +80,7 @@ async def test_read_curve_initiate_invalid(reader, mechanism):
         )
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_initiate_invalid_cookie(reader, mechanism):
     reader.write(b'\x04\x71\x08INITIATE' + b'\0' * 104)
@@ -86,6 +93,7 @@ async def test_read_curve_initiate_invalid_cookie(reader, mechanism):
         )
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_initiate_mismatching_cookie(reader, mechanism):
     cookie_nonce = b'\0' * 16
@@ -106,6 +114,7 @@ async def test_read_curve_initiate_mismatching_cookie(reader, mechanism):
         )
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_initiate_invalid_vouch_box(reader, mechanism):
     cookie_nonce = b'\0' * 16
@@ -126,6 +135,7 @@ async def test_read_curve_initiate_invalid_vouch_box(reader, mechanism):
         )
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_initiate_invalid_vouch_size(reader, mechanism):
     cookie_nonce = b'\0' * 16
@@ -152,6 +162,7 @@ async def test_read_curve_initiate_invalid_vouch_size(reader, mechanism):
         )
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_initiate_invalid_vouch(reader, mechanism):
     cookie_nonce = b'\0' * 16
@@ -178,6 +189,7 @@ async def test_read_curve_initiate_invalid_vouch(reader, mechanism):
         )
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_initiate_mismatching_vouch(reader, mechanism):
     cookie_nonce = b'\0' * 16

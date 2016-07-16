@@ -8,6 +8,8 @@ from azmq.crypto import curve_gen_keypair
 from azmq.mechanisms.curve_client import CurveClient
 from azmq.errors import ProtocolError
 
+from ...conftest import requires_libsodium
+
 
 @pytest.fixture
 def mechanism():
@@ -17,6 +19,7 @@ def mechanism():
     )()
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_welcome_invalid(reader, mechanism):
     reader.write(b'\x04\x07\x07WELCOME')
@@ -26,6 +29,7 @@ async def test_read_curve_welcome_invalid(reader, mechanism):
         await mechanism._read_curve_welcome(reader=reader)
 
 
+@requires_libsodium
 @pytest.mark.asyncio
 async def test_read_curve_welcome_invalid_box(reader, mechanism):
     reader.write(b'\x04\xa8\x07WELCOME' + b'\0' * 160)
