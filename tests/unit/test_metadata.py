@@ -13,7 +13,7 @@ def test_buffer_to_metadata_empty():
     assert result == {}
 
 
-def test_buffer_to_metadata_invalid_value_size():
+def test_buffer_to_metadata():
     buffer = b'\x03foo\x00\x00\x00\x03bar'
     result = buffer_to_metadata(buffer)
     assert result == {b'foo': b'bar'}

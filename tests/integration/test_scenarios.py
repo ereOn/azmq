@@ -732,7 +732,7 @@ async def test_req_router_invalid(event_loop, endpoint):
             await fivesec(req_socket.send_multipart([b'my', b'request']))
             message = await fivesec(router_socket.recv_multipart())
             assert message == [b'bob', b'', b'my', b'request']
-            await fivesec(router_socket.send_multipart([b'bob', b'my', b'bug']))
+            await fivesec(router_socket.send_multipart([b'bob', b'bug']))
             await zerosec(req_socket.recv_multipart())
 
         finally:

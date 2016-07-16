@@ -4,7 +4,6 @@ Unit tests for containers.
 
 from mock import MagicMock
 
-import asyncio
 import pytest
 
 from azmq.context import Context
