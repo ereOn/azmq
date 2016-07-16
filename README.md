@@ -172,8 +172,5 @@ pip install azmq[pysodium]
 To enable curve support. The former is preferred as it comes with an embedded,
 ready-to-use libsodium library.
 
----
-
-You may install it by using `pip`:
-
-> pip install azmq
+Alternatively, libsodium support will be automatically enabled if you install
+one of `csodium` or `pysodium` in the virtual environment.
