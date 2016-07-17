@@ -565,7 +565,8 @@ class Socket(CompositeClosableAsyncObject):
         try:
             peer = next(
                 p for p in self._peers
-                if p.connection.remote_identity == identity and
+                if p.connection and
+                p.connection.remote_identity == identity and
                 not p.outbox.full()
             )
         except StopIteration:
