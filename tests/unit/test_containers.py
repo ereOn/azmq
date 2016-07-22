@@ -63,8 +63,8 @@ async def test_asynclist_wait(event_loop):
     al.pop(0)
     await assert_empty(al)
 
-    # call_soon() would run the call right away since we are in a coroutine. This
-    # is not documented but it seems to happen consistently.
+    # call_soon() would run the call right away since we are in a coroutine.
+    # This is not documented but it seems to happen consistently.
     event_loop.call_later(0, al.append, 2)
     await asyncio.wait_for(al.wait_change(), 0.5)
 
