@@ -98,3 +98,8 @@ async def test_fairlistproxy(event_loop):
     assert next(iter(flp)) == 'b'
     assert next(iter(flp)) == 'c'
     assert next(iter(flp)) == 'a'
+
+    # call_soon() would run the call right away since we are in a coroutine.
+    # This is not documented but it seems to happen consistently.
+    event_loop.call_later(0, al.append, 2)
+    await asyncio.wait_for(flp.wait_change(), 0.5)

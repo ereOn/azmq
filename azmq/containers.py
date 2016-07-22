@@ -155,3 +155,9 @@ class FairListProxy(object):
         Wait for the list to become empty.
         """
         await self._list.wait_empty()
+
+    async def wait_change(self):
+        """
+        Wait for the list to change.
+        """
+        await self._list.wait_change()
