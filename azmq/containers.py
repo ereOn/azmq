@@ -40,7 +40,8 @@ class AsyncList(list, AsyncObject):
             self._not_empty.clear()
 
         for future in self._change_futures:
-            future.set_result(None)
+            if not future.done():
+                future.set_result(None)
 
     def append(self, *args, **kwargs):
         super().append(*args, **kwargs)

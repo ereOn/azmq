@@ -370,13 +370,14 @@ class Socket(CompositeClosableAsyncObject):
             # This rotates the list, implementing fair-queuing.
             peers = list(self._in_peers)
 
-            tasks = [
+            tasks = [asyncio.ensure_future(self._in_peers.wait_change())]
+            tasks.extend([
                 asyncio.ensure_future(
                     p.inbox.wait_not_empty(),
                     loop=self.loop,
                 )
                 for p in peers
-            ]
+            ])
 
             try:
                 done, pending = await asyncio.wait(
@@ -388,6 +389,7 @@ class Socket(CompositeClosableAsyncObject):
                 for task in tasks:
                     task.cancel()
 
+            tasks.pop(0)  # pop the wait_change task.
             peer = next(
                 (
                     p
@@ -427,13 +429,14 @@ class Socket(CompositeClosableAsyncObject):
             # This rotates the list, implementing fair-queuing.
             peers = list(self._out_peers)
 
-            tasks = [
+            tasks = [asyncio.ensure_future(self._out_peers.wait_change())]
+            tasks.extend([
                 asyncio.ensure_future(
                     p.outbox.wait_not_full(),
                     loop=self.loop,
                 )
                 for p in peers
-            ]
+            ])
 
             try:
                 done, pending = await asyncio.wait(
@@ -445,6 +448,7 @@ class Socket(CompositeClosableAsyncObject):
                 for task in tasks:
                     task.cancel()
 
+            tasks.pop(0)  # pop the wait_change task.
             peer = next(  # pragma: no cover
                 (
                     p
