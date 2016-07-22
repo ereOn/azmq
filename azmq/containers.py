@@ -28,6 +28,7 @@ class AsyncList(list, AsyncObject):
         AsyncObject.__init__(self, **kwargs)
         self._empty = asyncio.Event(loop=self.loop)
         self._not_empty = asyncio.Event(loop=self.loop)
+        self._change_futures = set()
         self._refresh()
 
     def _refresh(self):
@@ -37,6 +38,9 @@ class AsyncList(list, AsyncObject):
         else:
             self._empty.set()
             self._not_empty.clear()
+
+        for future in self._change_futures:
+            future.set_result(None)
 
     def append(self, *args, **kwargs):
         super().append(*args, **kwargs)
@@ -79,6 +83,15 @@ class AsyncList(list, AsyncObject):
         Wait for the list to become empty.
         """
         await self._empty.wait()
+
+    async def wait_change(self):
+        """
+        Wait for the list to change.
+        """
+        future = asyncio.Future(loop=self.loop)
+        self._change_futures.add(future)
+        future.add_done_callback(self._change_futures.discard)
+        await future
 
     def create_proxy(self):
         """
