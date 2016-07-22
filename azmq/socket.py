@@ -580,8 +580,9 @@ class Socket(CompositeClosableAsyncObject):
     async def _recv_router(self):
         peer = None
 
-        while not peer or not peer.connection:
-            peer = await self._fair_get_in_peer()
+        with await self._read_lock:
+            while not peer or not peer.connection:
+                peer = await self._fair_get_in_peer()
 
         frames = peer.inbox.read_nowait()
         frames.insert(0, peer.connection.remote_identity)
