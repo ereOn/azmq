@@ -6,7 +6,10 @@ import asyncio
 import random
 import struct
 
-from urllib.parse import urlsplit
+from urllib.parse import (
+    urlsplit,
+    urlunsplit,
+)
 from contextlib import ExitStack
 from functools import partial
 
@@ -225,6 +228,17 @@ class Socket(CompositeClosableAsyncObject):
         engine.close()
         await engine.wait_closed()
 
+    async def reconnect(self, endpoint, *, on_connection_failure=None):
+        await self.disconnect(endpoint)
+        self.connect(endpoint, on_connection_failure=on_connection_failure)
+
+    async def reconnect_all(self, *, on_connection_failure=None):
+        for endpoint in list(self._outgoing_engines):
+            await self.reconnect(
+                urlunsplit(endpoint),
+                on_connection_failure=on_connection_failure,
+            )
+
     def bind(self, endpoint, *, on_connection_failure=None):
         url = urlsplit(endpoint)
 
@@ -279,6 +293,21 @@ class Socket(CompositeClosableAsyncObject):
         engine = self._incoming_engines.pop(url)
         engine.close()
         await engine.wait_closed()
+
+    async def rebind(self, endpoint, *, on_connection_failure=None):
+        await self.unbind(endpoint)
+        self.bind(endpoint, on_connection_failure=on_connection_failure)
+
+    async def rebind_all(self, *, on_connection_failure=None):
+        for endpoint in list(self._incoming_engines):
+            await self.rebind(
+                urlunsplit(endpoint),
+                on_connection_failure=on_connection_failure,
+            )
+
+    async def reset_all(self, *, on_connection_failure=None):
+        await self.reconnect_all(on_connection_failure=on_connection_failure)
+        await self.rebind_all(on_connection_failure=on_connection_failure)
 
     def register_connection(self, connection, engine):
         logger.debug("Registering new active connection: %s", connection)

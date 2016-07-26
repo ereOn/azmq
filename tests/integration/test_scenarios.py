@@ -154,8 +154,7 @@ async def test_push_pull_explicit_reconnect(event_loop, endpoint):
             await fivesec(push_socket.send_multipart([b'hello']))
 
             # The disconnection should cause the outgoing message to be lost.
-            await fivesec(push_socket.disconnect(endpoint))
-            push_socket.connect(endpoint)
+            await fivesec(push_socket.reconnect(endpoint))
 
             pull_socket.bind(endpoint)
             await zerosec(pull_socket.recv_multipart())
@@ -192,8 +191,43 @@ async def test_pub_sub_implicit_reconnect(event_loop, endpoint):
                 message = await fivesec(sub_socket.recv_multipart())
                 assert message == [b'hello']
 
-                await pub_socket.unbind(endpoint)
-                pub_socket.bind(endpoint)
+                await fivesec(pub_socket.rebind(endpoint))
+
+                message = await fivesec(sub_socket.recv_multipart())
+                assert message == [b'hello']
+            finally:
+                publish_task.cancel()
+
+        finally:
+            pub_socket.close()
+            sub_socket.close()
+
+
+@use_all_transports
+@pytest.mark.asyncio
+async def test_pub_sub_reset(event_loop, endpoint):
+    async with azmq.Context() as context:
+        pub_socket = context.socket(azmq.PUB)
+        sub_socket = context.socket(azmq.SUB)
+        await sub_socket.subscribe(b'h')
+
+        try:
+            pub_socket.bind(endpoint)
+            sub_socket.connect(endpoint)
+
+            # Let's start a task that sends messages on the pub socket.
+            async def publish():
+                while True:
+                    await fivesec(pub_socket.send_multipart([b'hello']))
+
+            publish_task = asyncio.ensure_future(publish())
+
+            try:
+                message = await fivesec(sub_socket.recv_multipart())
+                assert message == [b'hello']
+
+                await fivesec(sub_socket.reset_all())
+                await fivesec(pub_socket.reset_all())
 
                 message = await fivesec(sub_socket.recv_multipart())
                 assert message == [b'hello']
