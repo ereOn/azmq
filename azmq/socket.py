@@ -226,7 +226,14 @@ class Socket(CompositeClosableAsyncObject):
         peer = self._outgoing_peers.pop(engine)
 
         if peer.connection:
+            # If the peer is connected, we just close the connection and let
+            # the usual clean-up take place.
             peer.connection.close()
+        else:
+            # If the peer does not have a connection, we can remove it safely
+            # as it will never have one (and if the connection were to succeed
+            # anyway, it would create then destroy a new peer).
+            self._peers.remove(peer)
 
         engine.close()
         await engine.wait_closed()
