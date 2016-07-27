@@ -224,7 +224,10 @@ class Socket(CompositeClosableAsyncObject):
 
         engine = self._outgoing_engines.pop(url)
         peer = self._outgoing_peers.pop(engine)
-        self._peers.remove(peer)
+
+        if peer.connection:
+            peer.connection.close()
+
         engine.close()
         await engine.wait_closed()
 
