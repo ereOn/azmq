@@ -387,10 +387,8 @@ async def test_req_rep_invalid_identity(event_loop, endpoint):
 
         try:
             future = asyncio.Future(loop=event_loop)
-            req_socket.connect(
-                endpoint,
-                on_connection_failure=future.set_result,
-            )
+            req_socket.on_connection_failure.connect(future.set_result)
+            req_socket.connect(endpoint)
             rep_socket.identity = b'\0invalid'
             rep_socket.bind(endpoint)
 
@@ -412,10 +410,8 @@ async def test_req_req_invalid_combination(event_loop, endpoint):
 
         try:
             future = asyncio.Future(loop=event_loop)
-            req_socket.connect(
-                endpoint,
-                on_connection_failure=future.set_result,
-            )
+            req_socket.on_connection_failure.connect(future.set_result)
+            req_socket.connect(endpoint)
             req_socket_2.bind(endpoint)
 
             await fivesec(future)

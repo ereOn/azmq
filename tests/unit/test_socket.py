@@ -2,8 +2,6 @@
 Unit tests for containers.
 """
 
-from mock import MagicMock
-
 import pytest
 
 from azmq.context import Context
@@ -35,12 +33,6 @@ def test_socket_invalid_bind(context):
 
     with pytest.raises(UnsupportedSchemeError):
         socket.bind('foo://bar')
-
-
-@pytest.mark.asyncio
-async def test_socket_bind_on_connection_failure(context):
-    async with Socket(context=context, socket_type=b'REQ') as socket:
-        socket.bind('tcp://0.0.0.0:3333', on_connection_failure=MagicMock())
 
 
 def test_socket_generate_identity(context):

@@ -6,6 +6,8 @@ import asyncio
 import random
 import struct
 
+from pyslot import Signal
+
 from urllib.parse import (
     urlsplit,
     urlunsplit,
@@ -151,6 +153,10 @@ class Socket(CompositeClosableAsyncObject):
         else:
             raise ValueError("Unsupported socket type: %r" % self.socket_type)
 
+        self.on_connection_ready = Signal()
+        self.on_connection_lost = Signal()
+        self.on_connection_failure = Signal()
+
     def create_inbox(self):
         return AsyncBox(
             maxsize=self.max_inbox_size,
@@ -163,7 +169,7 @@ class Socket(CompositeClosableAsyncObject):
             loop=self.loop,
         )
 
-    def connect(self, endpoint, *, on_connection_failure=None):
+    def connect(self, endpoint):
         url = urlsplit(endpoint)
 
         if url.scheme == 'tcp':
@@ -205,8 +211,9 @@ class Socket(CompositeClosableAsyncObject):
             partial(self.unregister_connection, engine=engine),
         )
 
-        if on_connection_failure:
-            engine.on_connection_failure.connect(on_connection_failure)
+        engine.on_connection_ready.connect(self.on_connection_ready.emit)
+        engine.on_connection_lost.connect(self.on_connection_lost.emit)
+        engine.on_connection_failure.connect(self.on_connection_failure.emit)
 
         self._outgoing_engines[url] = engine
         peer = Peer(
@@ -238,18 +245,15 @@ class Socket(CompositeClosableAsyncObject):
         engine.close()
         await engine.wait_closed()
 
-    async def reconnect(self, endpoint, *, on_connection_failure=None):
+    async def reconnect(self, endpoint):
         await self.disconnect(endpoint)
-        self.connect(endpoint, on_connection_failure=on_connection_failure)
+        self.connect(endpoint)
 
-    async def reconnect_all(self, *, on_connection_failure=None):
+    async def reconnect_all(self):
         for endpoint in list(self._outgoing_engines):
-            await self.reconnect(
-                urlunsplit(endpoint),
-                on_connection_failure=on_connection_failure,
-            )
+            await self.reconnect(urlunsplit(endpoint))
 
-    def bind(self, endpoint, *, on_connection_failure=None):
+    def bind(self, endpoint):
         url = urlsplit(endpoint)
 
         if url.scheme == 'tcp':
@@ -291,8 +295,9 @@ class Socket(CompositeClosableAsyncObject):
             partial(self.unregister_connection, engine=engine),
         )
 
-        if on_connection_failure:
-            engine.on_connection_failure.connect(on_connection_failure)
+        engine.on_connection_ready.connect(self.on_connection_ready.emit)
+        engine.on_connection_lost.connect(self.on_connection_lost.emit)
+        engine.on_connection_failure.connect(self.on_connection_failure.emit)
 
         self._incoming_engines[url] = engine
         self.register_child(engine)
@@ -304,20 +309,17 @@ class Socket(CompositeClosableAsyncObject):
         engine.close()
         await engine.wait_closed()
 
-    async def rebind(self, endpoint, *, on_connection_failure=None):
+    async def rebind(self, endpoint):
         await self.unbind(endpoint)
-        self.bind(endpoint, on_connection_failure=on_connection_failure)
+        self.bind(endpoint)
 
-    async def rebind_all(self, *, on_connection_failure=None):
+    async def rebind_all(self):
         for endpoint in list(self._incoming_engines):
-            await self.rebind(
-                urlunsplit(endpoint),
-                on_connection_failure=on_connection_failure,
-            )
+            await self.rebind(urlunsplit(endpoint))
 
-    async def reset_all(self, *, on_connection_failure=None):
-        await self.reconnect_all(on_connection_failure=on_connection_failure)
-        await self.rebind_all(on_connection_failure=on_connection_failure)
+    async def reset_all(self):
+        await self.reconnect_all()
+        await self.rebind_all()
 
     def register_connection(self, connection, engine):
         logger.debug("Registering new active connection: %s", connection)
